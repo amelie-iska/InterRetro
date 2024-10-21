@@ -1,3 +1,7 @@
+dataset/
+saved_models/
+one_step_model
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
