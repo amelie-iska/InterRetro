@@ -1,6 +1,7 @@
 dataset/
 saved_models/
-one_step_model
+one_step_model/
+.virtual_documents/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
