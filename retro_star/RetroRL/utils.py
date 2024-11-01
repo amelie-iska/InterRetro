@@ -1,0 +1,43 @@
+import os
+import torch
+import random
+import numpy as np
+
+from datetime import datetime
+
+from rdkit import Chem
+from rdkit.Chem import AllChem
+
+def smiles2array(X, fp_dim):
+    # Compute fingerprint from mol to feature
+    mol = Chem.MolFromSmiles(X)
+    fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=int(fp_dim),useChirality=True)
+    onbits = list(fp.GetOnBits())
+    arr = np.zeros(fp.GetNumBits())
+    arr[onbits] = 1
+    # arr = (arr - arr.mean())/(arr.std() + 0.000001)
+    # arr = arr / fp_dim
+    # X = fps_to_arr(X)
+    return arr
+
+
+
+def set_seeds(seed):
+    if seed < 0:
+        seed = random.randint(0, 100)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    random.seed(seed)
+    return seed
+
+def get_device():
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+def create_exp(seed, group):
+    base_dir = 'experiments'
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir)
+    current_time = datetime.now().strftime("%m%d-%H:%M:%S")
+    run_dir = os.path.join(base_dir, f"{group}{current_time}-s{seed}")
+    os.makedirs(run_dir)
+    return run_dir
