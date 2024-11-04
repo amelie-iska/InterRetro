@@ -3,6 +3,7 @@ dataset/
 saved_models/
 one_step_model/
 .virtual_documents/
+wandb/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
