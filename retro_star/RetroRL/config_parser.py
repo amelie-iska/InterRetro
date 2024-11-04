@@ -5,7 +5,9 @@ def get_args():
     
     parser.add_argument('--device', type=int, default=0)
     parser.add_argument('--seed', type=int, default=-1)
+    parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='AcRep')
+    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
     
     parser.add_argument('--fp_dim', type=int, default=2048)
     

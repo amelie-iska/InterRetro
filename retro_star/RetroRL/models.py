@@ -85,8 +85,9 @@ class ActionRepresentation(nn.Module):
         super(ActionRepresentation, self).__init__()
         self.model = nn.Sequential(nn.Linear(state_dim, 1024),
                                    nn.ReLU(),
-                                   nn.Linear(1024, ac_dim),
-                                   nn.Sigmoid())
+                                   nn.Linear(1024, 1024),
+                                   nn.ReLU(),
+                                   nn.Linear(1024, ac_dim))
         self.model.to(device=device)
         
     def forward(self, rxn):
