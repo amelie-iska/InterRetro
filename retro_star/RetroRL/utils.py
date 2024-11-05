@@ -1,12 +1,31 @@
 import os
 import torch
 import random
+import pickle
+import pandas as pd
 import numpy as np
 
 from datetime import datetime
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
+
+
+def minicut(input, minirun):
+    if minirun:
+        output = input[:int(len(input)/100)]
+        return output
+    else:
+        return input
+    
+def prepare_starting_molecules(filename):
+    if filename[-3:] == 'csv':
+        starting_mols = set(list(pd.read_csv(filename)['mol']))
+    else:
+        assert filename[-3:] == 'pkl'
+        with open(filename, 'rb') as f:
+            starting_mols = pickle.load(f)
+    return starting_mols
 
 def smiles2array(X, fp_dim):
     # Compute fingerprint from mol to feature
@@ -19,8 +38,6 @@ def smiles2array(X, fp_dim):
     # arr = arr / fp_dim
     # X = fps_to_arr(X)
     return arr
-
-
 
 def set_seeds(seed):
     if seed < 0:

@@ -49,22 +49,20 @@ def load_model(state_path, template_rule_path,fp_dim=2048):
     rollout.load_state_dict(new_state_dict)
     return rollout, idx2rule, template_rules
     
-class MLPModel(object):
-    def __init__(self, state_path, template_path, device=-1, fp_dim=2048, realistic_filter=False):
+class MLPModel:
+    def __init__(self, state_path, template_path, device='cuda', fp_dim=2048, realistic_filter=False):
         super(MLPModel, self).__init__()
         self.fp_dim = fp_dim
         self.net, self.idx2rules, self.rules2idx = load_model(state_path, template_path, fp_dim)
         self.net.eval()
         self.device = device
-        if device >= 0:
-            self.net.to(device)
+        self.net.to(device)
 
         self.realistic_filter = realistic_filter
         
         self.reference_net, _, _ = load_model(state_path, template_path, fp_dim)
         self.reference_net.eval()
-        if device >= 0:
-            self.reference_net.to(device)
+        self.reference_net.to(device)
 
     def forward_topk(self, arr, topk=10):
         preds = self.net(arr)
@@ -94,8 +92,37 @@ class ActionRepresentation(nn.Module):
         return self.model(rxn)
         
         
-        
-        
+class ValueMLP(nn.Module):
+  def __init__(self, n_layers, fp_dim, latent_dim, dropout_rate, device):
+      super(ValueMLP, self).__init__()
+      self.n_layers = n_layers
+      self.fp_dim = fp_dim
+      self.latent_dim = latent_dim
+      self.dropout_rate = dropout_rate
+      self.device = device
+
+      layers = []
+      layers.append(nn.Linear(fp_dim, latent_dim))
+      # layers.append(nn.BatchNorm1d(latent_dim,
+      #                              track_running_stats=False))
+      layers.append(nn.ReLU())
+      layers.append(nn.Dropout(self.dropout_rate))
+      for _ in range(self.n_layers - 1):
+          layers.append(nn.Linear(latent_dim, latent_dim))
+          # layers.append(nn.BatchNorm1d(latent_dim,
+          #                              track_running_stats=False))
+          layers.append(nn.ReLU())
+          layers.append(nn.Dropout(self.dropout_rate))
+      layers.append(nn.Linear(latent_dim, 1))
+
+      self.layers = nn.Sequential(*layers).to(device=device)
+
+  def forward(self, fps):
+      x = fps
+      x = self.layers(x)
+      x = torch.log(1 + torch.exp(x))
+      return x      
+      
         
         
         

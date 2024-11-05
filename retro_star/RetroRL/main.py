@@ -14,10 +14,13 @@ from rdkit import Chem, RDLogger
 RDLogger.DisableLog('rdApp.*')
 from rdchiral.main import rdchiralRunText
 
-from utils import set_seeds, create_exp, smiles2array
+from agent import RetroRL
+from envs import RetroEnv, eval
+from utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut
 from config_parser import get_args
-from models import MLPModel, ActionRepresentation
+from models import MLPModel, ActionRepresentation, ValueMLP
 from data_loader import create_molecule_dataloader
+from buffer import ReplayBuffer
 
 args = get_args()
 args.seed = set_seeds(args.seed)
@@ -30,122 +33,62 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logging.info(f"Created experiment run directory: {exp_folder}")
+logging.info(f"Experiment run directory created in {exp_folder}")
 with open(exp_folder + "/args.json", "w") as f:
     json.dump(args.__dict__, f, indent=4)
 if args.enable_wandb:
     wandb.init(project=args.project, config=args, group=args.group, name='{}_seed{}'.format(args.group, args.seed))
 
-routes = pickle.load(open(args.training_routes, 'rb'))
+routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun)
+logging.info(f"{len(routes)} training routes have been loaded.")
 target_mols = []
-for route in tqdm(routes):
+for route in routes:
     for rxn in route:
         target_mols.append(Chem.CanonSmiles(rxn.split('>')[0]))
 target_mols = list(set(target_mols))
-logging.info(f"{len(target_mols)} target molecules are preserved after removing duplicates. ")
+logging.info(f"{len(target_mols)} target molecules are loaded after removing duplicates. ")
+
+eval_routes = pickle.load(open(args.eval_routes, 'rb'))
+logging.info(f"{len(eval_routes)} evaluation routes have been loaded.")
+eval_mols = []
+for route in eval_routes:
+    for rxn in route:
+        eval_mols.append(Chem.CanonSmiles(rxn.split('>')[0]))
+eval_mols = list(set(eval_mols))
+logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
+
+building_blocks = prepare_starting_molecules(args.building_blocks_path)
+logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
+
+env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
+eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 
 one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
-ac_rep = ActionRepresentation(state_dim=len(one_step.idx2rules), ac_dim=64, device=args.device)
-acrep_optim = torch.optim.Adam(params=ac_rep.parameters(), lr=0.001)
+agent = RetroRL(one_step)
+policy_opt = torch.optim.Adam(agent.one_step.net.parameters(), lr=0.001)
+agent.one_step.net.eval()
 
-molecule_loader = create_molecule_dataloader(target_mols, batch_size=1, shuffle=True)
-for epoch in range(10):
-    for mol_idx, batch in tqdm(enumerate(molecule_loader), total=len(molecule_loader), desc=f"Epoch {epoch+1}", leave=True):
-        mol = smiles2array(batch[0], fp_dim=2048)
-        obs = torch.Tensor(mol[np.newaxis]).to(device=args.device)
-        _, _, idx_topk = one_step.forward_topk(obs, topk=2)
-        
-        anchor_idx = idx_topk[0, 0].item()
-        positive_idx = idx_topk[0, 1].item()
-        negatives_idx = random.sample(range(len(one_step.idx2rules)), 256)
-        
-        anchor_ohidx = F.one_hot(torch.tensor([anchor_idx]).to(device=args.device), num_classes=len(one_step.idx2rules))
-        positive_ohidx = F.one_hot(torch.tensor([positive_idx]).to(device=args.device), num_classes=len(one_step.idx2rules))
-        negative_ohidx = F.one_hot(torch.tensor(negatives_idx).to(device=args.device), num_classes=len(one_step.idx2rules))
-    
-        anchor_rep = ac_rep(anchor_ohidx.to(torch.float32)) # torch.Size([1, 64])
-        positive_rep = ac_rep(positive_ohidx.to(torch.float32)) # torch.Size([1, 64])
-        negative_rep = ac_rep(negative_ohidx.to(torch.float32)) #torch.Size([256, 64])
-        
-        margin = 0.0
-        anchor_positive_dist = F.mse_loss(anchor_rep, positive_rep, reduction='none').sum(dim=1)
-        anchor_negative_dists = F.mse_loss(anchor_rep.expand_as(negative_rep), negative_rep, reduction='none').sum(dim=1)
-        contrastive_loss = torch.clamp(anchor_positive_dist - anchor_negative_dists + margin, min=-100000).mean()
-        
-        acrep_optim.zero_grad()
-        contrastive_loss.backward()
-        acrep_optim.step()
-    
-        acrep_training_info = {'ActionRep/contrastive_loss': contrastive_loss.item(),
-                               'ActionRep/anchor_positive_dist': anchor_positive_dist.mean().item(),
-                               'ActionRep/anchor_negative_dist': anchor_negative_dists.mean().item()}
-        acrep_evaluation_info = {}
-        
-        if mol_idx % 10000 == 0 and mol_idx != 0:
-            logging.info("----------------------------------------")
-            start_time = time.time()
-            
-            solved_mols = 0
-            total_mols = 5
-            sampled_mols = random.sample(target_mols, total_mols)
-            for mol in sampled_mols:
-                mol_array = smiles2array(mol, fp_dim=2048)
-                obs = torch.Tensor(mol_array[np.newaxis]).to(device=args.device)
-                _, _, idx_topk = one_step.forward_topk(obs, topk=2)
-            
-                anchor_idx = idx_topk[0, 0].item()
-                positive_idx = idx_topk[0, 1].item()
-            
-                anchor_ohidx = F.one_hot(torch.tensor([anchor_idx]).to(device=args.device), num_classes=len(one_step.idx2rules))
-                positive_ohidx = F.one_hot(torch.tensor([positive_idx]).to(device=args.device), num_classes=len(one_step.idx2rules))
-            
-                # Get reaction representations
-                anchor_rep = ac_rep(anchor_ohidx.to(torch.float32))  # torch.Size([1, 64])
-                positive_rep = ac_rep(positive_ohidx.to(torch.float32))  # torch.Size([1, 64])
-            
-                # Evaluate nearest reaction
-                chunk_size = 1024 * 2  # Adjust this to control memory usage
-                min_distance = float('inf')
-                min_index = None
-                with torch.no_grad():
-                    sampled_indices = random.sample(range(len(one_step.idx2rules)), k=50000)
-                    for i in range(0, len(sampled_indices), chunk_size):
-                        end = min(i + chunk_size, len(one_step.idx2rules))
-            
-                        indices = torch.arange(i, end)
-                        if positive_idx in indices:
-                            indices = indices[indices != positive_idx]
-            
-                        chunk_rxns = F.one_hot(indices, num_classes=len(one_step.idx2rules)).to(torch.float32).to(device=args.device)
-                        chunk_reps = ac_rep(chunk_rxns)
-                        distances = torch.cdist(positive_rep, chunk_reps)
-                        chunk_min_dist, chunk_min_idx = torch.min(distances, dim=1)
-            
-                        if chunk_min_dist.item() < min_distance:
-                            min_distance = chunk_min_dist.item()
-                            min_index = i + chunk_min_idx.item()
-                
-                if len(rdchiralRunText(one_step.idx2rules[min_index], mol)) > 0:
-                    solved_mols += 1
-                
-                # Log the results
-                logging.info("Evaluation on the reaction representation")
-                logging.info(f"Target molecule: {mol}")
-                logging.info(f"Positive reaction: {positive_idx} with {rdchiralRunText(one_step.idx2rules[positive_idx], mol)}")
-                logging.info(f"Nearest reaction: {min_index} with {rdchiralRunText(one_step.idx2rules[min_index], mol)}")
-                
-                
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            logging.info(f"Time taken for finding nearest reaction: {elapsed_time:.2f} seconds")
-            logging.info(f"{solved_mols}/{total_mols} are solved.")
-            
-            acrep_evaluation_info = {'ActionRep/success_rate': solved_mols / total_mols}
-                
-        wandb.log({**acrep_training_info, **acrep_evaluation_info})
+value_net = ValueMLP(n_layers=1, fp_dim=args.fp_dim, latent_dim=128, dropout_rate=0.1, device=args.device)
+value_opt = torch.optim.Adam(value_net.parameters(), lr=0.0001)
+value_net.eval()
+
+buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
 
 
-if args.enamble_wandb:
+eval_info = eval([eval_env, env], agent)
+logging.info(f"---------- Evaluation info ----------\n{eval_info}")
+
+
+for epoch
+
+
+
+
+
+
+
+
+if args.enable_wandb:
     wandb.finished()
 
 
