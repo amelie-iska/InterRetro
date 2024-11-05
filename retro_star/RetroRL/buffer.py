@@ -34,7 +34,7 @@ class ReplayBuffer:
         :param reward: Reward received (float).
         :param done: Whether the episode has ended (bool).
         """
-        idx = self.pos % self.capacity
+        idx = int(self.pos % self.capacity)
         self.buffer['obs'][idx] = obs
         self.buffer['next_obs'][idx] = next_obs
         self.buffer['actions'][idx] = action

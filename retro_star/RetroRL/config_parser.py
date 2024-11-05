@@ -10,6 +10,7 @@ def get_args():
     parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=0)
     parser.add_argument('--minirun',  type=int, choices=[0, 1], default=1)
     
+    parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--fp_dim', type=int, default=2048)
     parser.add_argument('--buffer_capacity', type=int, default=2e4)
     

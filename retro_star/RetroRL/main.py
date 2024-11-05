@@ -15,12 +15,13 @@ RDLogger.DisableLog('rdApp.*')
 from rdchiral.main import rdchiralRunText
 
 from agent import RetroRL
-from envs import RetroEnv, eval
+from envs import RetroEnv
 from utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut
 from config_parser import get_args
 from models import MLPModel, ActionRepresentation, ValueMLP
 from data_loader import create_molecule_dataloader
 from buffer import ReplayBuffer
+from trajectories import TrajectoryCreator
 
 args = get_args()
 args.seed = set_seeds(args.seed)
@@ -74,19 +75,24 @@ value_net.eval()
 
 buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
 
-
-eval_info = eval([eval_env, env], agent)
-logging.info(f"---------- Evaluation info ----------\n{eval_info}")
+traj_creator = TrajectoryCreator(agent)
 
 
-for epoch
+training_info = env.eval(agent)
+eval_info = eval_env.eval(agent)
+logging.info(f"---------- Evaluation info ----------\n{training_info}\n{eval_info}")
 
-
-
-
-
-
-
+for epoch in range(args.epochs):
+    for mol_idx in range(len(env.target_mols)):
+        root = env.build_tree(agent, mol_idx=mol_idx)
+        trajs = traj_creator.tree2traj(root)
+        translated_trajs = traj_creator.translate_trajs(trajs)
+        for tj in translated_trajs:
+            for i in range(0, len(tj)-1, 2):
+                if len(tj) == i+2:
+                    buffer.add(obs=tj[i], next_obs=tj[i+2], action=tj[i+1], reward=1, done=1)
+                else:
+                    buffer.add(obs=tj[i], next_obs=tj[i+2], action=tj[i+1], reward=0, done=0)
 
 if args.enable_wandb:
     wandb.finished()
