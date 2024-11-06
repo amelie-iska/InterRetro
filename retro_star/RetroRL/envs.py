@@ -53,7 +53,7 @@ class RetroEnv:
             self.obs_node = None
             return None, 1, 1, None
     
-    def eval(self, agent):
+    def eval(self, agent, mode):
         eval_info = {}
         rewards = np.zeros((min(len(self.target_mols), 200), 1))
         for mol_idx in range(min(len(self.target_mols), 200)):
@@ -65,13 +65,16 @@ class RetroEnv:
                 if done:
                     break
                 obs = next_obs
-        eval_info['success_rate'] = rewards.mean()
+        eval_info['evaluation/' + mode + '_success_rate'] = rewards.mean()
         return eval_info
     
-    def build_tree(self, agent, mol_idx=None):
+    def build_tree(self, agent, mol_idx=None, exploration_rate=0.1):
         obs = self.reset(mol_idx)
         for t in range(100):
-            a, _ = agent.get_action(obs)
+            if random.random() < exploration_rate:
+                _, a = agent.get_random_action(obs)
+            else:
+                a, _ = agent.get_action(obs)
             next_obs, reward, done, info = self.step(a)
             if done:
                 break

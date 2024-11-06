@@ -66,34 +66,44 @@ eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 
 one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
 agent = RetroRL(one_step)
-policy_opt = torch.optim.Adam(agent.one_step.net.parameters(), lr=0.001)
-agent.one_step.net.eval()
-
-value_net = ValueMLP(n_layers=1, fp_dim=args.fp_dim, latent_dim=128, dropout_rate=0.1, device=args.device)
-value_opt = torch.optim.Adam(value_net.parameters(), lr=0.0001)
-value_net.eval()
 
 buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
 
 traj_creator = TrajectoryCreator(agent)
 
 
-training_info = env.eval(agent)
-eval_info = eval_env.eval(agent)
-logging.info(f"---------- Evaluation info ----------\n{training_info}\n{eval_info}")
 
 for epoch in range(args.epochs):
-    for mol_idx in range(len(env.target_mols)):
-        root = env.build_tree(agent, mol_idx=mol_idx)
+    for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}"):
+        root = env.build_tree(agent, mol_idx=mol_idx, exploration_rate=0.05)
         trajs = traj_creator.tree2traj(root)
         translated_trajs = traj_creator.translate_trajs(trajs)
         for tj in translated_trajs:
             for i in range(0, len(tj)-1, 2):
-                if len(tj) == i+2:
+                if len(tj) == i+3:
                     buffer.add(obs=tj[i], next_obs=tj[i+2], action=tj[i+1], reward=1, done=1)
                 else:
                     buffer.add(obs=tj[i], next_obs=tj[i+2], action=tj[i+1], reward=0, done=0)
+                    
+        if mol_idx % args.training_interval == 0 and len(buffer) > 1000:
+            batch = buffer.sample(128)
+            critic_info = agent.train_critic(batch)
+            actor_info = agent.train_actor(batch)
+            
+        
+        if mol_idx % args.evaluation_interval == 0 and len(buffer) > 1000:
+            training_info = env.eval(agent, mode='training')
+            eval_info = eval_env.eval(agent, mode='evaluation')
+            info = {**training_info, **eval_info, **critic_info, **actor_info}
+            logging.info(f"Evaluation ep {epoch} mol {mol_idx}\n"
+                         + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
+            if args.enable_wandb:
+                wandb.log(info)
 
+        
+        
+        
+                    
 if args.enable_wandb:
     wandb.finished()
 
