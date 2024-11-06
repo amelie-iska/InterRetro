@@ -11,7 +11,35 @@ class TrajectoryCreator:
     def print_tree(self, root):
         for pre, fill, node in RenderTree(root):
             print("%s%s----%s" % (pre, node.id, node.inbb))
+            
+            
+    def extract_branches(self, root):
+        branches = []
+        def traverse(node):
+            if node.children:
+                reaction = node.action
+                children =  [c for c in node.children]
+                reactants = [c.id for c in node.children]
+                inbb_flags = [c.inbb for c in node.children]
+                branch = [node.id, reaction, reactants, inbb_flags]
+
+                branches.append(branch)
+                for child in children:
+                    traverse(child)
+
+        traverse(root)
+        return branches
     
+    def translate_branches(self, branches):
+        for branch in branches:
+            branch[0] = smiles2array(branch[0], self.agent.fp_dim)
+            rxn_idx = self.agent.one_step.rules2idx[branch[1]]
+            branch[1] = np.zeros(len(self.agent.one_step.idx2rules))
+            branch[1][rxn_idx] = 1
+            for mol_idx in range(len(branch[2])):
+                branch[2][mol_idx] = smiles2array(branch[2][mol_idx], self.agent.fp_dim)
+        return branches
+            
     def tree2traj(self, root):
         valid_subtrees = []
         self.find_valid_subtrees(root, valid_subtrees)

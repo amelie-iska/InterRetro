@@ -72,23 +72,26 @@ buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action
 traj_creator = TrajectoryCreator(agent)
 
 
+logging.info("Training starts ...")
+
+training_info = env.eval(agent, mode='training')
+eval_info = eval_env.eval(agent, mode='evaluation')
+info = {**training_info, **eval_info}
+logging.info("Evaluation ep 0 mol 0\n" + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
 
 for epoch in range(args.epochs):
     for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}"):
         root = env.build_tree(agent, mol_idx=mol_idx, exploration_rate=0.05)
-        trajs = traj_creator.tree2traj(root)
-        translated_trajs = traj_creator.translate_trajs(trajs)
-        for tj in translated_trajs:
-            for i in range(0, len(tj)-1, 2):
-                if len(tj) == i+3:
-                    buffer.add(obs=tj[i], next_obs=tj[i+2], action=tj[i+1], reward=1, done=1)
-                else:
-                    buffer.add(obs=tj[i], next_obs=tj[i+2], action=tj[i+1], reward=0, done=0)
+        #trajs = traj_creator.tree2traj(root)
+        branches = traj_creator.extract_branches(root)
+        translated_branches = traj_creator.translate_branches(branches)
+        for b in translated_branches:
+            buffer.add(obs=b[0], action=b[1], next_obs=b[2], reward=b[3])
                     
         if mol_idx % args.training_interval == 0 and len(buffer) > 1000:
             batch = buffer.sample(128)
             critic_info = agent.train_critic(batch)
-            actor_info = agent.train_actor(batch)
+            #actor_info = agent.train_actor(batch)
             
         
         if mol_idx % args.evaluation_interval == 0 and len(buffer) > 1000:

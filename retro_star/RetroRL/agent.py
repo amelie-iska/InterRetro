@@ -30,7 +30,7 @@ class RetroRL:
         self.one_step.net.train()
     
         preds, _, idx = self.one_step.forward_topk(obs, topk=10)
-        candidate_actions = F.one_hot(idx, num_classes=self.one_step.net.n_rules).float()  
+        candidate_actions = F.one_hot(idx, num_classes=self.one_step.net.n_rules) 
         
         q_values = []
         for i in range(10):
@@ -46,7 +46,6 @@ class RetroRL:
         actor_loss.backward()
         self.policy_opt.step()
         
-        
         self.one_step.net.eval()
     
         return {'actor/loss': actor_loss.item()}
@@ -54,24 +53,23 @@ class RetroRL:
     def train_critic(self, batch):
         obs = torch.Tensor(batch['obs']).to(self.device)
         acs = torch.Tensor(batch['actions']).to(self.device)
-        next_obs = torch.Tensor(batch['next_obs']).to(self.device)
-        rwd = torch.Tensor(batch['rewards']).to(self.device)
-        done = torch.Tensor(batch['dones']).to(self.device)
-
-        with torch.no_grad():
-            preds, _, _ = self.one_step.forward_topk(next_obs, topk=1) 
-            probs = F.softmax(preds, dim=1)
-            next_actions = torch.multinomial(probs, num_samples=1)
-            next_actions = F.one_hot(next_actions.squeeze(-1), num_classes=self.one_step.net.n_rules)
-            target_q_values = self.value_net(next_obs, next_actions).squeeze()
-            target = rwd + (1 - done) * target_q_values
+        targets = torch.zeros(len(batch['obs']), 1).to(self.device)
         
-
+        with torch.no_grad():
+            for i, (next_obs, rwd) in enumerate(zip(batch['next_obs'], batch['rewards'])):
+                rwd = torch.Tensor(rwd).unsqueeze(1).to(self.device)
+                next_obs = torch.Tensor(np.array(next_obs)).to(self.device)
+                
+                _, _, idx = self.one_step.forward_topk(next_obs, topk=1) 
+                next_actions = F.one_hot(idx.squeeze(-1), num_classes=self.one_step.net.n_rules)
+                next_values = rwd + (1 - rwd) * self.value_net(next_obs, next_actions)
+                
+                min_values, min_idx = torch.min(next_values, dim=0)
+                targets[i] = min_values
+        
         self.value_net.train()
-        pred = self.value_net(obs, acs).squeeze()
-        loss = F.mse_loss(pred, target)
-
-        print(target, pred)
+        preds = self.value_net(obs, acs)
+        loss = F.mse_loss(preds, targets)
 
         self.value_opt.zero_grad()
         loss.backward()

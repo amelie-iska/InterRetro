@@ -16,15 +16,15 @@ class ReplayBuffer:
         self.action_dim = action_dim
         self.buffer = {
             'obs': np.zeros((int(capacity), int(obs_dim)), dtype=np.float32),
-            'next_obs': np.zeros((int(capacity), int(obs_dim)), dtype=np.float32),
+            'next_obs': [[] for _ in range(int(capacity))],
             'actions': np.zeros((int(capacity), int(action_dim)), dtype=np.float32),
-            'rewards': np.zeros(int(capacity), dtype=np.float32),
+            'rewards': [[] for _ in range(int(capacity))],
             'dones': np.zeros(int(capacity), dtype=np.float32),
         }
         self.size = 0
         self.pos = 0
 
-    def add(self, obs, next_obs, action, reward, done):
+    def add(self, obs, action, next_obs, reward):
         """
         Add an experience to the buffer.
 
@@ -39,7 +39,6 @@ class ReplayBuffer:
         self.buffer['next_obs'][idx] = next_obs
         self.buffer['actions'][idx] = action
         self.buffer['rewards'][idx] = reward
-        self.buffer['dones'][idx] = done
         self.pos += 1
         self.size = min(self.size + 1, self.capacity)
 
@@ -53,10 +52,9 @@ class ReplayBuffer:
         indices = random.sample(range(self.size), batch_size)
         return {
             'obs': self.buffer['obs'][indices],
-            'next_obs': self.buffer['next_obs'][indices],
+            'next_obs': [self.buffer['next_obs'][i] for i in indices],
             'actions': self.buffer['actions'][indices],
-            'rewards': self.buffer['rewards'][indices],
-            'dones': self.buffer['dones'][indices],
+            'rewards': [self.buffer['rewards'][i] for i in indices],
         }
 
     def __len__(self):
