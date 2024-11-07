@@ -10,13 +10,15 @@ class TrajectoryCreator:
             
     def extract_branches(self, root):
         branches = []
+        
         def traverse(node):
             if node.children:
                 reaction = node.action
                 children =  [c for c in node.children]
                 reactants = [c.id for c in node.children]
                 inbb_flags = [c.inbb for c in node.children]
-                branch = [node.id, reaction, reactants, inbb_flags]
+                dones = [int(len(c.children)==0) for c in node.children]
+                branch = [node.id, reaction, reactants, inbb_flags, dones]
 
                 branches.append(branch)
                 for child in children:

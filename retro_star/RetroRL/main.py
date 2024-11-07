@@ -65,7 +65,7 @@ env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
 eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 
 one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
-agent = RetroRL(one_step, action_mode=args.action_mode)
+agent = RetroRL(one_step, action_mode=args.action_mode, discount=args.discount)
 
 buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
 
@@ -86,13 +86,12 @@ for epoch in range(args.epochs):
         branches = traj_creator.extract_branches(root)
         translated_branches = traj_creator.translate_branches(branches)
         for b in translated_branches:
-            buffer_info = buffer.add(obs=b[0], action=b[1], next_obs=b[2], reward=b[3])
+            buffer_info = buffer.add(obs=b[0], action=b[1], next_obs=b[2], reward=b[3], done=b[4])
                     
         if mol_idx % args.training_interval == 0 and len(buffer) > 1000:
             batch = buffer.sample(128)
             training_info = agent.update(batch)
             
-        
         if mol_idx % args.evaluation_interval == 0 and len(buffer) > 1000:
             eval_info1 = env.eval(agent, mode='training')
             eval_info2 = eval_env.eval(agent, mode='evaluation', critic=agent.value_net)

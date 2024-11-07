@@ -8,11 +8,12 @@ from models import MLPModel, ActionRepresentation, ValueMLP
 from utils import smiles2array
 
 class RetroRL:
-    def __init__(self, one_step, action_mode, topk=10, fp_dim=2048, device='cuda'):
+    def __init__(self, one_step, action_mode, discount, topk=10, fp_dim=2048, device='cuda'):
         self.fp_dim = fp_dim
         self.topk = 10
         self.device = device
         self.action_mode = action_mode
+        self.discount = discount
         self.one_step = one_step
         self.updates = 0
         
@@ -73,13 +74,14 @@ class RetroRL:
         targets = torch.zeros(len(batch['obs']), 1).to(self.device)
         
         with torch.no_grad():
-            for i, (next_obs, rwd) in enumerate(zip(batch['next_obs'], batch['rewards'])):
+            for i, (next_obs, rwd, dones) in enumerate(zip(batch['next_obs'], batch['rewards'], batch['dones'])):
                 rwd = torch.Tensor(rwd).unsqueeze(1).to(self.device)
                 next_obs = torch.Tensor(np.array(next_obs)).to(self.device)
+                dones = torch.Tensor(dones).unsqueeze(1).to(self.device)
                 
                 _, _, idx = self.one_step.forward_topk(next_obs, topk=1) 
                 next_actions = F.one_hot(idx.squeeze(-1), num_classes=self.one_step.net.n_rules)
-                next_values = rwd + (1 - rwd) * self.value_target(next_obs, next_actions)
+                next_values = rwd + (1 - dones) * self.value_target(next_obs, next_actions)
                 
                 min_values, min_idx = torch.min(next_values, dim=0)
                 targets[i] = min_values
