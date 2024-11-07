@@ -65,7 +65,7 @@ env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
 eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 
 one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
-agent = RetroRL(one_step)
+agent = RetroRL(one_step, action_mode=args.action_mode)
 
 buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
 
@@ -74,30 +74,29 @@ traj_creator = TrajectoryCreator(agent)
 
 logging.info("Training starts ...")
 
-training_info = env.eval(agent, mode='training')
-eval_info = eval_env.eval(agent, mode='evaluation')
-info = {**training_info, **eval_info}
+'''
+eval_info1 = env.eval(agent, mode='training')
+eval_info2 = eval_env.eval(agent, mode='evaluation')
+info = {**eval_info1, **eval_info2}
 logging.info("Evaluation ep 0 mol 0\n" + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
-
+'''
 for epoch in range(args.epochs):
-    for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}"):
-        root = env.build_tree(agent, mol_idx=mol_idx, exploration_rate=0.05)
-        #trajs = traj_creator.tree2traj(root)
+    for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+        root = env.build_tree(agent, mol_idx=mol_idx, epsilon=args.epsilon)
         branches = traj_creator.extract_branches(root)
         translated_branches = traj_creator.translate_branches(branches)
         for b in translated_branches:
-            buffer.add(obs=b[0], action=b[1], next_obs=b[2], reward=b[3])
+            buffer_info = buffer.add(obs=b[0], action=b[1], next_obs=b[2], reward=b[3])
                     
         if mol_idx % args.training_interval == 0 and len(buffer) > 1000:
             batch = buffer.sample(128)
-            critic_info = agent.train_critic(batch)
-            #actor_info = agent.train_actor(batch)
+            training_info = agent.update(batch)
             
         
         if mol_idx % args.evaluation_interval == 0 and len(buffer) > 1000:
-            training_info = env.eval(agent, mode='training')
-            eval_info = eval_env.eval(agent, mode='evaluation')
-            info = {**training_info, **eval_info, **critic_info, **actor_info}
+            eval_info1 = env.eval(agent, mode='training')
+            eval_info2 = eval_env.eval(agent, mode='evaluation', critic=agent.value_net)
+            info = {**training_info, **buffer_info, **eval_info1, **eval_info2}
             logging.info(f"Evaluation ep {epoch} mol {mol_idx}\n"
                          + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
             if args.enable_wandb:

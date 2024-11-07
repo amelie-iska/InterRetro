@@ -7,11 +7,6 @@ from anytree import AnyNode, RenderTree, PreOrderIter
 class TrajectoryCreator:
     def __init__(self, agent):
         self.agent = agent
-    
-    def print_tree(self, root):
-        for pre, fill, node in RenderTree(root):
-            print("%s%s----%s" % (pre, node.id, node.inbb))
-            
             
     def extract_branches(self, root):
         branches = []

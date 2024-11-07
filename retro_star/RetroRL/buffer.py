@@ -40,7 +40,8 @@ class ReplayBuffer:
         self.buffer['actions'][idx] = action
         self.buffer['rewards'][idx] = reward
         self.pos += 1
-        self.size = min(self.size + 1, self.capacity)
+        self.size = int(min(self.size + 1, self.capacity))
+        return {'buffer/space': self.size/self.capacity}
 
     def sample(self, batch_size):
         """

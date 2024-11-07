@@ -13,8 +13,10 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--training_interval', type=int, default=5)
     parser.add_argument('--evaluation_interval', type=int, default=1000)
+    parser.add_argument('--epsilon', type=int, default=0)
     parser.add_argument('--fp_dim', type=int, default=2048)
     parser.add_argument('--buffer_capacity', type=int, default=2e4)
+    parser.add_argument('--action_mode', type=str, default='sampling')
     
     parser.add_argument('--training_routes', type=str, default='../dataset/routes_train.pkl')
     parser.add_argument('--eval_routes', type=str, default='../dataset/routes_possible_test_hard.pkl')
