@@ -35,7 +35,12 @@ class RetroEnv:
 
     def step(self, a):
         self.obs_node.action = a
-        reactants = rdchiralRunText(a, self.obs)
+        try:
+            reactants = rdchiralRunText(a, self.obs)
+        except RuntimeError as e:
+            logging.info(f"rdchiralRunText error: {e}")
+            return None, 0, 1, None
+        
         if len(reactants) == 0:
             return None, 0, 1, None
         else:
@@ -64,7 +69,7 @@ class RetroEnv:
         for mol_idx in range(100):
             obs = self.reset()
             for t in range(50):
-                a, _ = agent.get_action(obs)
+                a = agent.get_action(obs)
                 
                 if not critic == None and mol_idx == 99:
                     obs_arr = smiles2array(obs, agent.fp_dim)
@@ -93,9 +98,9 @@ class RetroEnv:
         obs = self.reset(mol_idx)
         for t in range(100):
             if random.random() < epsilon:
-                _, a = agent.get_random_action(obs)
+                a = agent.get_action(obs, exploration=True)
             else:
-                a, _ = agent.get_action(obs)
+                a = agent.get_action(obs)
             next_obs, reward, done, info = self.step(a)
             if done:
                 break

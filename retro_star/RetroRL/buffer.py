@@ -27,7 +27,8 @@ class ReplayBuffer:
 
         self.pos += 1
         self.size = int(min(self.size + 1, self.capacity))
-        return {'buffer/space': self.size/self.capacity}
+        return {'buffer/space': self.size/self.capacity,
+                'buffer/size': self.size}
 
     def sample(self, batch_size):
         indices = random.sample(range(self.size), batch_size)

@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument('--evaluation_interval', type=int, default=5000)
     parser.add_argument('--epsilon', type=int, default=0.2)
     parser.add_argument('--fp_dim', type=int, default=2048)
-    parser.add_argument('--buffer_capacity', type=int, default=2e6)
+    parser.add_argument('--buffer_capacity', type=int, default=1e6)
     parser.add_argument('--discount', type=float, default=0.95)
     parser.add_argument('--action_mode', type=str, default='sampling')
     

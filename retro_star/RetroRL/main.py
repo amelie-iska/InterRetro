@@ -73,13 +73,10 @@ traj_creator = TrajectoryCreator(agent)
 
 
 logging.info("Training starts ...")
-
-'''
 eval_info1 = env.eval(agent, mode='training')
 eval_info2 = eval_env.eval(agent, mode='evaluation')
 info = {**eval_info1, **eval_info2}
 logging.info("Evaluation ep 0 mol 0\n" + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
-'''
 for epoch in range(args.epochs):
     for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
 

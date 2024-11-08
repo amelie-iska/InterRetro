@@ -4,6 +4,7 @@ saved_models/
 one_step_model/
 .virtual_documents/
 wandb/
+.idea/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
