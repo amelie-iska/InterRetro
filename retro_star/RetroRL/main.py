@@ -82,24 +82,29 @@ logging.info("Evaluation ep 0 mol 0\n" + "\n".join([f"{key}: {value:.4f}" for ke
 '''
 for epoch in range(args.epochs):
     for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+
+        logs = {}
+
         root = env.build_tree(agent, mol_idx=mol_idx, epsilon=args.epsilon)
         branches = traj_creator.extract_branches(root)
         translated_branches = traj_creator.translate_branches(branches)
         for b in translated_branches:
             buffer_info = buffer.add(obs=b[0], action=b[1], next_obs=b[2], reward=b[3], done=b[4])
+            logs.update(buffer_info)
                     
-        if mol_idx % args.training_interval == 0 and len(buffer) > 1000:
-            batch = buffer.sample(128)
+        if mol_idx % args.training_interval == 0 and len(buffer) > args.pre_collections:
+            batch = buffer.sample(args.batch_size)
             training_info = agent.update(batch)
+            logs.update(training_info)
             
-        if mol_idx % args.evaluation_interval == 0 and len(buffer) > 1000:
+        if mol_idx % args.evaluation_interval == 0 and len(buffer) > args.pre_collections:
             eval_info1 = env.eval(agent, mode='training')
             eval_info2 = eval_env.eval(agent, mode='evaluation', critic=agent.value_net)
-            info = {**training_info, **buffer_info, **eval_info1, **eval_info2}
-            logging.info(f"Evaluation ep {epoch} mol {mol_idx}\n"
-                         + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
-            if args.enable_wandb:
-                wandb.log(info)
+            logs.update(eval_info1 | eval_info2)
+            logging.info(f"Evaluation ep {epoch} mol {mol_idx}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
+
+        if args.enable_wandb:
+            wandb.log(logs)
 
         
         

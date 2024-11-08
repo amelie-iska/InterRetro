@@ -133,12 +133,12 @@ class RetroRL:
         arr = np.reshape(arr,[-1, arr.shape[0]])
         arr = torch.tensor(arr, dtype=torch.float32)
         arr = arr.to(device='cuda')
-        preds, preds_reference, idx = self.one_step.forward_topk(arr, topk=20) 
+        preds, preds_reference, idx = self.one_step.forward_topk(arr, topk=25)
 
         probs = F.softmax(preds, dim=1)
-        probs = torch.ones_like(probs) / 20
+        probs = torch.ones_like(probs) / 25
         probs_reference = F.softmax(preds_reference, dim=1)
-        probs_reference = torch.ones_like(probs_reference) / 20
+        probs_reference = torch.ones_like(probs_reference) / 25
         action_class = torch.multinomial(probs, num_samples=1).squeeze().cpu().numpy()
         reference_class = torch.multinomial(probs_reference, num_samples=1).squeeze().cpu().numpy()
        
