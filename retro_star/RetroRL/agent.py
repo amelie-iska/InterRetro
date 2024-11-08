@@ -56,6 +56,7 @@ class RetroRL:
             q_values.append(q_value)
         q_values = torch.stack(q_values, dim=1) 
         targets = torch.argmax(q_values, dim=1)
+        # Here is a bug
         
         self.one_step.net.train()
         preds = self.one_step.net(obs)
