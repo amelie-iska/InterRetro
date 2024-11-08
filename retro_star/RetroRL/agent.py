@@ -36,7 +36,7 @@ class RetroRL:
     
     def update(self, batch):
         critic_info = self.train_critic(batch)
-        actor_info = self.train_actor(batch)
+        actor_info = {}#self.train_actor(batch)
         self.updates = self.updates + 1
         if self.updates % 2 == 0:
             self.update_value_target()
@@ -92,7 +92,8 @@ class RetroRL:
                 next_obs = torch.Tensor(np.array(next_obs)).to(self.device)
                 dones = torch.Tensor(dones).unsqueeze(1).to(self.device)
 
-                preds = self.one_step.net(next_obs)
+                #preds = self.one_step.net(next_obs)
+                preds = self.one_step.reference_net(next_obs)
                 _, next_ac_idx = torch.max(preds, dim=1)
                 next_actions = F.one_hot(next_ac_idx, num_classes=self.one_step.net.n_rules)
                 next_values = rwd + (1 - dones) * self.value_target(next_obs, next_actions)
@@ -119,6 +120,19 @@ class RetroRL:
         arr = np.reshape(arr,[-1, arr.shape[0]])
         arr = torch.tensor(arr, dtype=torch.float32)
         arr = arr.to(device='cuda')
+        
+        obs = torch.Tensor(arr).to(self.device)
+        preds_reference = self.one_step.reference_net(obs).detach()
+        preds_reference, idx_topk = torch.topk(preds_reference, k=25)
+        idx_topk = idx_topk.squeeze(dim=0)
+        candidate_actions = F.one_hot(idx_topk, num_classes=self.one_step.net.n_rules)
+        
+        q_values = self.value_net(obs.repeat(25, 1), candidate_actions)
+        idx = torch.argmax(q_values, dim=0).cpu().item()
+        rxn_idx = idx_topk[idx].cpu().item()
+        rxn = self.one_step.idx2rules[rxn_idx]
+        return rxn
+        
         
         preds = self.one_step.net(arr)
         if exploration:
