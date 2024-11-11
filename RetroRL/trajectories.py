@@ -16,9 +16,9 @@ class TrajectoryCreator:
                 reaction = node.action
                 children =  [c for c in node.children]
                 reactants = [c.id for c in node.children]
-                inbb_flags = [c.inbb for c in node.children]
-                dones = [int(len(c.children)==0) for c in node.children]
-                branch = [node.id, reaction, reactants, inbb_flags, dones]
+                inbb = [c.inbb for c in node.children]
+                isdd = [int(c.isdd==1) for c in node.children]
+                branch = [node.id, reaction, reactants, inbb, isdd]
 
                 branches.append(branch)
                 for child in children:

@@ -22,7 +22,6 @@ def get_args():
     parser.add_argument('--fp_dim', type=int, default=2048)
     parser.add_argument('--buffer_capacity', type=int, default=5e6)
     parser.add_argument('--discount', type=float, default=0.95)
-    parser.add_argument('--action_mode', type=str, default='sampling')
     
     parser.add_argument('--training_routes', type=str, default='../dataset/routes_train.pkl')
     parser.add_argument('--eval_routes', type=str, default='../dataset/routes_possible_test_hard.pkl')

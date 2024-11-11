@@ -8,11 +8,10 @@ from models import MLPModel, ActionRepresentation, ValueMLP
 from utils import smiles2array
 
 class RetroRL:
-    def __init__(self, one_step, action_mode, discount, topk=10, fp_dim=2048, device='cuda'):
+    def __init__(self, one_step, discount, topk=10, fp_dim=2048, device='cuda'):
         self.fp_dim = fp_dim
-        self.topk = 10
+        self.topk = topk
         self.device = device
-        self.action_mode = action_mode
         self.discount = discount
         self.one_step = one_step
         self.updates = 0
@@ -83,7 +82,7 @@ class RetroRL:
                 'training/main_loss': main_loss.item()}
     
     def train_critic(self, batch):
-        max_len =  5 # max(len(next_obs) for next_obs in batch['next_obs'])
+        max_len =  max(len(next_obs) for next_obs in batch['next_obs'])
         batch_size = len(batch['next_obs'])
         obs = torch.Tensor(batch['obs']).to(self.device)
         acs = torch.Tensor(batch['actions']).to(self.device)
@@ -108,7 +107,10 @@ class RetroRL:
             q_values = self.value_target(flat_next_obs, next_actions.view(-1, next_actions.size(-1)))
             q_values = q_values.view(batch_size, max_len, 1)
             
-            targets = (padded_rewards + (1 - padded_dones) * q_values) * padded
+            # correct rxn to building blocks (r=1, d=0) -> targets = r
+            # correct rxn to non-building block (r=0, d=0) -> targets = 0.8 * q_values
+            # incorrect rxn (r=0, d=1) -> targets = 0
+            targets = (padded_rewards + 0.8 * (1 - padded_dones) * (1 - padded_rewards) * q_values) * padded
             targets = targets.min(dim=1).values
             
         self.value_net.train()
@@ -124,40 +126,6 @@ class RetroRL:
                 'training/critic_targets': targets.mean().item(),
                 'training/critic_predicts': preds.mean().item()}
         
-        '''
-        obs = torch.Tensor(batch['obs']).to(self.device)
-        acs = torch.Tensor(batch['actions']).to(self.device)
-        targets = torch.zeros(len(batch['obs']), 1).to(self.device)
-        
-        with torch.no_grad():
-            for i, (next_obs, rwd, dones) in enumerate(zip(batch['next_obs'], batch['rewards'], batch['dones'])):
-                rwd = torch.Tensor(rwd).unsqueeze(1).to(self.device)
-                next_obs = torch.Tensor(np.array(next_obs)).to(self.device)
-                dones = torch.Tensor(dones).unsqueeze(1).to(self.device)
-
-                #preds = self.one_step.net(next_obs)
-                preds = self.one_step.reference_net(next_obs)
-                _, next_ac_idx = torch.max(preds, dim=1)
-                next_actions = F.one_hot(next_ac_idx, num_classes=self.one_step.net.n_rules)
-                next_values = rwd + (1 - dones) * self.value_target(next_obs, next_actions)
-                
-                min_values, min_idx = torch.min(next_values, dim=0)
-                targets[i] = min_values
-        
-        self.value_net.train()
-        preds = self.value_net(obs, acs)
-        loss = F.mse_loss(preds, targets)
-
-        self.value_opt.zero_grad()
-        loss.backward()
-        self.value_opt.step()
-
-        self.value_net.eval()
-
-        return {'training/critic_loss': loss.item(),
-                'training/critic_targets': targets.mean().item(),
-                'training/critic_predicts': preds.mean().item()}
-        '''
     
     def get_action(self, a, exploration=False):
         arr = smiles2array(a, self.fp_dim)
@@ -167,14 +135,11 @@ class RetroRL:
         idx_topk = idx_topk.squeeze(dim=0)
 
         if exploration:
-            #probs = F.softmax(preds_reference, dim=1)
-            probs = torch.ones_like(preds_reference) / self.topk
+            probs = F.softmax(preds_reference, dim=1)
+            #probs = torch.ones_like(preds_reference) / self.topk
             idx = torch.multinomial(probs, num_samples=1).cpu().item()
         else:
-            candidate_actions = F.one_hot(idx_topk, num_classes=self.one_step.net.n_rules)
-            q_values = self.value_net(obs.repeat(self.topk, 1), candidate_actions)
-            idx = torch.argmax(q_values, dim=0).cpu().item()
-
+            idx = 0
         rxn_idx = idx_topk[idx].cpu().item()
         rxn = self.one_step.idx2rules[rxn_idx]
         return rxn

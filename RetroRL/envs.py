@@ -20,6 +20,7 @@ class RetroEnv:
         self.building_blocks = blocking_blocks
 
     def reset(self, mol_idx=None):
+        self.feasible = 1
         self.tree_mdp = None
         self.tobevisited_nodes = []
 
@@ -29,7 +30,7 @@ class RetroEnv:
             self.obs = self.target_mols[mol_idx]
             
         self.obs_node = AnyNode(id=self.obs, action=None, inbb=int(self.obs in self.building_blocks),
-                                value=-1)
+                                isdd=0, value=-1)
         self.tree_mdp = self.obs_node
         return self.obs
 
@@ -39,18 +40,20 @@ class RetroEnv:
             reactants = rdchiralRunText(a, self.obs)
         except RuntimeError as e:
             logging.info(f"rdchiralRunText error: {e}")
-            return None, 0, 1, None
+            reactants = []
+            self.obs_node.isdd = 1
+            self.feasible = 0
         
         if len(reactants) == 0:
-            return None, 0, 1, None
+            self.obs_node.isdd = 1
+            self.feasible = 0
         else:
             reactants = list(set(reactants[0].split('.')))
-        
-        for r in reactants:
-            r_node = AnyNode(id=r, parent=self.obs_node, action=None, inbb=int(r in self.building_blocks),
-                             value=-1)
-            if not r in self.building_blocks:
-                self.tobevisited_nodes.append(r_node)
+            for r in reactants:
+                r_node = AnyNode(id=r, parent=self.obs_node, action=None, inbb=int(r in self.building_blocks),
+                                 isdd=0, value=-1)
+                if not r in self.building_blocks:
+                    self.tobevisited_nodes.append(r_node)
         
         if self.tobevisited_nodes:
             self.obs = self.tobevisited_nodes[-1].id
@@ -60,7 +63,7 @@ class RetroEnv:
         else:
             self.obs = None
             self.obs_node = None
-            return None, 1, 1, None
+            return None, self.feasible, 1, None
     
     @torch.no_grad()
     def eval(self, agent, mode, critic=None, print_last_tree=True):
@@ -105,7 +108,7 @@ class RetroEnv:
             if done:
                 break
             obs = next_obs
-        return self.tree_mdp, int(reward==1)
+        return self.tree_mdp, reward
     
     def print_tree(self, root=None):
         if root == None:

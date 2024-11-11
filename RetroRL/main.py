@@ -66,7 +66,7 @@ env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
 eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 
 one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
-agent = RetroRL(one_step, action_mode=args.action_mode, discount=args.discount)
+agent = RetroRL(one_step, topk=args.topk, discount=args.discount)
 
 buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
 
@@ -80,7 +80,6 @@ info = {**eval_info1, **eval_info2}
 logging.info("Evaluation ep 0 mol 0\n" + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
 
 returns = deque(maxlen=100)
-
 for epoch in range(args.epochs):
     for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
 
@@ -89,7 +88,7 @@ for epoch in range(args.epochs):
         # Collect data
         root, if_success = env.build_tree(agent, mol_idx=mol_idx, epsilon=args.epsilon)
         returns.append(if_success)
-        logs.update({'evaluation/collection_success_rate': np.mean(returns)})
+        logs.update({'collection/success_rate': np.mean(returns)})
 
         # Add data to buffer
         branches = traj_creator.extract_branches(root)
