@@ -4,6 +4,7 @@ import json
 import random
 import time
 import wandb
+from collections import deque
 import numpy as np
 
 import torch
@@ -77,27 +78,39 @@ eval_info1 = env.eval(agent, mode='training')
 eval_info2 = eval_env.eval(agent, mode='evaluation')
 info = {**eval_info1, **eval_info2}
 logging.info("Evaluation ep 0 mol 0\n" + "\n".join([f"{key}: {value:.4f}" for key, value in info.items()]))
+
+returns = deque(maxlen=100)
+
 for epoch in range(args.epochs):
     for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
 
         logs = {}
 
-        root = env.build_tree(agent, mol_idx=mol_idx, epsilon=args.epsilon)
+        # Collect data
+        root, if_success = env.build_tree(agent, mol_idx=mol_idx, epsilon=args.epsilon)
+        returns.append(if_success)
+        logs.update({'recent success rate': np.mean(returns)})
+
+        # Add data to buffer
         branches = traj_creator.extract_branches(root)
         translated_branches = traj_creator.translate_branches(branches)
         for b in translated_branches:
             buffer_info = buffer.add(obs=b[0], action=b[1], next_obs=b[2], reward=b[3], done=b[4])
             logs.update(buffer_info)
-                    
+
+        # Train models
         if mol_idx % args.training_interval == 0 and len(buffer) > args.pre_collections:
             batch = buffer.sample(args.batch_size)
             training_info = agent.update(batch)
             logs.update(training_info)
-            
+
+        # Evaluate models
         if mol_idx % args.evaluation_interval == 0 and len(buffer) > args.pre_collections:
             eval_info1 = env.eval(agent, mode='training')
             eval_info2 = eval_env.eval(agent, mode='evaluation', critic=agent.value_net)
             logs.update(eval_info1 | eval_info2)
+
+        if mol_idx % args.log_interval == 0 and len(buffer) > args.pre_collections:
             logging.info(f"Evaluation ep {epoch} mol {mol_idx}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
 
         if args.enable_wandb:

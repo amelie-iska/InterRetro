@@ -7,17 +7,20 @@ def get_args():
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
-    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
+    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=0)
     parser.add_argument('--minirun',  type=int, choices=[0, 1], default=0)
-    
-    parser.add_argument('--epochs', type=int, default=10)
+
     parser.add_argument('--training_interval', type=int, default=5)
-    parser.add_argument('--pre_collections', type=int, default=5000)
-    parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--evaluation_interval', type=int, default=5000)
-    parser.add_argument('--epsilon', type=int, default=0.2)
+    parser.add_argument('--log_interval', type=int, default=5000)
+
+    parser.add_argument('--epochs', type=int, default=10)
+    parser.add_argument('--topk', type=int, default=5)
+    parser.add_argument('--pre_collections', type=int, default=5000)
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--epsilon', type=int, default=0.05)
     parser.add_argument('--fp_dim', type=int, default=2048)
-    parser.add_argument('--buffer_capacity', type=int, default=1e6)
+    parser.add_argument('--buffer_capacity', type=int, default=5e6)
     parser.add_argument('--discount', type=float, default=0.95)
     parser.add_argument('--action_mode', type=str, default='sampling')
     

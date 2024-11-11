@@ -96,7 +96,7 @@ class RetroEnv:
     
     def build_tree(self, agent, mol_idx=None, epsilon=0.1):
         obs = self.reset(mol_idx)
-        for t in range(100):
+        for t in range(50):
             if random.random() < epsilon:
                 a = agent.get_action(obs, exploration=True)
             else:
@@ -105,7 +105,7 @@ class RetroEnv:
             if done:
                 break
             obs = next_obs
-        return self.tree_mdp
+        return self.tree_mdp, int(reward==1)
     
     def print_tree(self, root=None):
         if root == None:

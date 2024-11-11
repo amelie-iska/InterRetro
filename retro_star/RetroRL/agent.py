@@ -118,33 +118,23 @@ class RetroRL:
     
     def get_action(self, a, exploration=False):
         arr = smiles2array(a, self.fp_dim)
-        arr = np.reshape(arr,[-1, arr.shape[0]])
-        arr = torch.tensor(arr, dtype=torch.float32)
-        arr = arr.to(device='cuda')
-        
-        obs = torch.Tensor(arr).to(self.device)
+        obs = torch.Tensor(arr[np.newaxis]).to(self.device)
         preds_reference = self.one_step.reference_net(obs).detach()
-        preds_reference, idx_topk = torch.topk(preds_reference, k=25)
+        preds_reference, idx_topk = torch.topk(preds_reference, k=self.topk)
         idx_topk = idx_topk.squeeze(dim=0)
-        candidate_actions = F.one_hot(idx_topk, num_classes=self.one_step.net.n_rules)
-        
-        q_values = self.value_net(obs.repeat(25, 1), candidate_actions)
-        idx = torch.argmax(q_values, dim=0).cpu().item()
+
+        if exploration:
+            #probs = F.softmax(preds_reference, dim=1)
+            probs = torch.ones_like(preds_reference) / self.topk
+            idx = torch.multinomial(probs, num_samples=1).cpu().item()
+        else:
+            candidate_actions = F.one_hot(idx_topk, num_classes=self.one_step.net.n_rules)
+            q_values = self.value_net(obs.repeat(self.topk, 1), candidate_actions)
+            idx = torch.argmax(q_values, dim=0).cpu().item()
+
         rxn_idx = idx_topk[idx].cpu().item()
         rxn = self.one_step.idx2rules[rxn_idx]
         return rxn
-        
-        
-        preds = self.one_step.net(arr)
-        if exploration:
-           probs = F.softmax(preds, dim=1)
-           action_class = torch.multinomial(probs, num_samples=1).cpu().item()
-        else:
-            preds = self.one_step.net(arr)
-            action_class = torch.argmax(preds, dim=1).cpu().item()
-        rxn = self.one_step.idx2rules[action_class]
-        return rxn
-        
 
     def update_value_target(self):
         for param, target_param in zip(self.value_net.parameters(), self.value_target.parameters()):
