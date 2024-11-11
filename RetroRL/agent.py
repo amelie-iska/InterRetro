@@ -47,11 +47,11 @@ class RetroRL:
     def train_actor(self, batch):
         obs = torch.Tensor(batch['obs']).to(self.device)
         preds_reference = self.one_step.reference_net(obs).detach()
-        preds_reference, idx_topk = torch.topk(preds_reference, k=15)
+        preds_reference, idx_topk = torch.topk(preds_reference, k=self.topk)
         candidate_actions = F.one_hot(idx_topk, num_classes=self.one_step.net.n_rules)
         
         q_values = []
-        for i in range(15):
+        for i in range(self.topk):
             q_value = self.value_net(obs, candidate_actions[:, i, :]).squeeze()
             q_values.append(q_value)
         q_values = torch.stack(q_values, dim=1) 
@@ -83,6 +83,48 @@ class RetroRL:
                 'training/main_loss': main_loss.item()}
     
     def train_critic(self, batch):
+        max_len =  5 # max(len(next_obs) for next_obs in batch['next_obs'])
+        batch_size = len(batch['next_obs'])
+        obs = torch.Tensor(batch['obs']).to(self.device)
+        acs = torch.Tensor(batch['actions']).to(self.device)
+        
+        padded_next_obs = torch.zeros((batch_size, max_len, self.fp_dim), device=self.device)
+        padded_rewards = torch.zeros((batch_size, max_len, 1), device=self.device)
+        padded_dones = torch.zeros((batch_size, max_len, 1), device=self.device)
+        padded = torch.zeros((batch_size, max_len, 1), device=self.device) + torch.finfo(torch.float32).max
+        for i, (next_obs, rewards, dones) in enumerate(zip(batch['next_obs'], batch['rewards'], batch['dones'])):
+            stacked_obs = torch.stack([torch.Tensor(obs).to(self.device) for obs in next_obs])
+            padded_next_obs[i, :stacked_obs.size(0)] = stacked_obs
+            padded_rewards[i, :len(rewards)] = torch.Tensor(rewards).unsqueeze(1).to(self.device)
+            padded_dones[i, :len(dones)] = torch.Tensor(dones).unsqueeze(1).to(self.device)
+            padded[i, :len(dones)] = 1
+        
+        with torch.no_grad():
+            flat_next_obs = padded_next_obs.view(-1, self.fp_dim)
+            preds = self.one_step.reference_net(flat_next_obs)
+            _, next_ac_idx = torch.max(preds, dim=1)
+            next_actions = F.one_hot(next_ac_idx, num_classes=self.one_step.net.n_rules).float()
+            next_actions = next_actions.view(batch_size, max_len, self.one_step.net.n_rules)
+            q_values = self.value_target(flat_next_obs, next_actions.view(-1, next_actions.size(-1)))
+            q_values = q_values.view(batch_size, max_len, 1)
+            
+            targets = (padded_rewards + (1 - padded_dones) * q_values) * padded
+            targets = targets.min(dim=1).values
+            
+        self.value_net.train()
+        preds = self.value_net(obs, acs)
+        loss = F.mse_loss(preds, targets)
+
+        self.value_opt.zero_grad()
+        loss.backward()
+        self.value_opt.step()
+        self.value_net.eval()
+
+        return {'training/critic_loss': loss.item(),
+                'training/critic_targets': targets.mean().item(),
+                'training/critic_predicts': preds.mean().item()}
+        
+        '''
         obs = torch.Tensor(batch['obs']).to(self.device)
         acs = torch.Tensor(batch['actions']).to(self.device)
         targets = torch.zeros(len(batch['obs']), 1).to(self.device)
@@ -115,6 +157,7 @@ class RetroRL:
         return {'training/critic_loss': loss.item(),
                 'training/critic_targets': targets.mean().item(),
                 'training/critic_predicts': preds.mean().item()}
+        '''
     
     def get_action(self, a, exploration=False):
         arr = smiles2array(a, self.fp_dim)

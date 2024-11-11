@@ -89,7 +89,7 @@ for epoch in range(args.epochs):
         # Collect data
         root, if_success = env.build_tree(agent, mol_idx=mol_idx, epsilon=args.epsilon)
         returns.append(if_success)
-        logs.update({'recent success rate': np.mean(returns)})
+        logs.update({'evaluation/collection_success_rate': np.mean(returns)})
 
         # Add data to buffer
         branches = traj_creator.extract_branches(root)
