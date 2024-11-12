@@ -114,6 +114,12 @@ for epoch in range(args.epochs):
 
         if args.enable_wandb:
             wandb.log(logs)
+            
+        
+    torch.save({'critic_net_state_dict': agent.value_net.state_dict(),
+                'critic_target_state_dict': agent.value_target.state_dict(),
+                'criic_optimiser': agent.value_opt.state_dict()},
+               save_path=exp_folder + f'/models_epoch{epoch}')
 
         
         
