@@ -17,7 +17,7 @@ from rdchiral.main import rdchiralRunText
 
 from agent import RetroRL
 from envs import RetroEnv
-from utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut
+from utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut, prepare_onlinemcts_planner
 from config_parser import get_args
 from models import MLPModel, ActionRepresentation, ValueMLP
 from data_loader import create_molecule_dataloader
@@ -72,6 +72,30 @@ buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action
 
 traj_creator = TrajectoryCreator(agent)
 
+
+def value_fn(mol):
+    fp = smiles2array(mol, fp_dim=args.fp_dim).reshape(1,-1)
+    fp = torch.FloatTensor(fp).to('cuda')
+    v = agent.value_net(fp).item()
+    return v
+
+def prior_fn(mol):
+    fp = smiles2array(mol, fp_dim=args.fp_dim).reshape(1,-1)
+    fp = torch.FloatTensor(fp).to('cuda')
+    p = agent.syn_net(fp).item()
+    return p
+
+onlinemcts_handle = prepare_onlinemcts_planner(one_step=one_step, 
+                                               value_fn=value_fn, 
+                                               prior_fn=prior_fn, 
+                                               starting_mols=building_blocks, 
+                                               expansion_topk=5, 
+                                               iterations=100, 
+                                               args=args, 
+                                               viz=True, 
+                                               viz_dir=exp_folder+'/viz')
+
+onlinemcts_handle(target_mols[0], 0, test=True)
 
 logging.info("Training starts ...")
 eval_info1 = env.eval(agent, mode='training')

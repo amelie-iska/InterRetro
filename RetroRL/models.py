@@ -1,7 +1,25 @@
+import numpy as np
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from collections import defaultdict, OrderedDict
+from rdchiral.main import rdchiralRunText
+
+from utils import smiles2array
+
+def merge(reactant_d):
+    ret = []
+    for reactant, l in reactant_d.items():
+        ss, srs, ts, ids = zip(*l)
+    #     k = np.argmax(ss)
+    #     ret.append((reactant, sum(ss), list(ts)[k], list(ids)[k]))
+    # reactants, scores, templates, templates_idx = zip(*sorted(ret, key=lambda item : item[1], reverse=True))
+        ret.append((reactant, sum(ss), sum(srs), list(ts)[0], list(ids)[0]))
+    reactants, scores, scores_reference, templates, templates_idx = zip(*sorted(ret, key=lambda item : item[1], reverse=True))
+    return list(reactants), list(scores), list(scores_reference), list(templates), list(templates_idx)
+
 
 
 class RolloutPolicyNet(nn.Module):
@@ -76,7 +94,158 @@ class MLPModel:
             preds_reference = preds_reference.gather(1, idx_topk)
 
         return preds, preds_reference, idx_topk
+    
+    def run(self, mol_node, topk=10, backward=True, sample_mode=None, test=False):
+        x = mol_node.mol if hasattr(mol_node, 'mol') else mol_node
+        arr = smiles2array(x, self.fp_dim)
+        arr = np.reshape(arr,[-1, arr.shape[0]])
+        arr = torch.tensor(arr, dtype=torch.float32)
+        if self.device >= 0:
+            arr = arr.to(self.device)
+        # preds = self.net(arr)
+        # preds = F.softmax(preds,dim=1)
+        # if self.device >= 0:
+        #     preds = preds.cpu()
+        # probs, idx = torch.topk(preds,k=topk)
+        preds, preds_reference, idx = self.forward_topk(arr, topk=topk)
+        probs = F.softmax(preds, dim=1)
+        probs_reference = F.softmax(preds_reference, dim=1)
+        preds, preds_reference, idx, probs, probs_reference = preds.cpu(), preds_reference.cpu(), idx.cpu(), probs.cpu(), probs_reference.cpu()
+        # probs = F.softmax(preds, dim=1)
+        # probs_reference = F.softmax(preds_reference, dim=1)
+        rule_k = [self.idx2rules[id] for id in idx[0].numpy().tolist()]
+        reactants = []
+        scores = []
+        scores_reference = []
+        templates = []
+        templates_idx = []
 
+        if sample_mode == 'template':
+            # probs = probs / probs.sum()
+            result = {'reactants':[],
+                      'reactant_lists': [],
+                      'template' : [],
+                      'templates_idx': []}
+            ancestors = mol_node.get_ancestors()
+            for i in range(topk):
+                try:
+                    is_invalid = True # if current template, i.e., idx[i], is valid
+                    if test:
+                        template_idx = torch.argmax(probs[0]).item()
+                    else:
+                        template_idx = torch.multinomial(probs[0], 1).item() # TODO: sum of probabilities <= 0
+                    rule = rule_k[template_idx]
+                    out1 = rdchiralRunText(rule, x)
+                    out1 = sorted(out1)
+                    # check repeated molecules
+                    for reactants in out1:
+                        reactant_list = list(set(reactants.split('.')))
+                        is_repeated = False
+                        # for reactant in reactant_list:
+                        #     if reactant in ancestors:
+                        #         is_repeated = True
+                        #         break
+                        if not is_repeated:
+                            is_invalid = False
+                            result['reactants'].append(reactants)
+                            result['reactant_lists'].append(reactant_list)
+                            result['template'].append(rule)
+                            result['templates_idx'].append(template_idx if self.realistic_filter else idx[0][template_idx].item())
+                except (ValueError, RuntimeError) as e:
+                    """
+                    RuntimeError: Pre-condition Violation
+                    Stereo atoms should be specified before specifying CIS/TRANS bond stereochemistry
+                    Violation occurred on line 288 in file Code/GraphMol/Bond.h
+                    Failed Expression: what <= STEREOE || getStereoAtoms().size() == 2
+                    RDKIT: 2020.09.1
+                    BOOST: 1_73
+                    """
+                    pass
+                except (IndexError, KeyError) as e:
+                    """
+                    rdchiral bug during function call rdchiralRunText(rule, mol)
+                    This error can be reprobuced by the following code:
+                    mol = 'C[C@H](OC(=O)C=O)C(=O)O'
+                    rule = '([#8:1]-[C:2](=[O;D1;H0:3])-[CH;D2;+0:4]=[O;H0;D1;+0:5])>>[#8:1]-[C:2](=[O;D1;H0:3])-[C@@H;D3;+0:4](-[OH;D1;+0:5])-[C@H;D3;+0:4](-[OH;D1;+0:5])-[C:2](-[#8:1])=[O;D1;H0:3]'
+                    out1 = rdchiralRunText(rule, mol)
+                    """
+                    pass
+                if is_invalid: # invalid molecule
+                    result['reactants'].append('Invalid')
+                    result['reactant_lists'].append(['Invalid'])
+                    result['template'].append(rule)
+                    result['templates_idx'].append(template_idx if self.realistic_filter else idx[0][template_idx].item())
+                    probs[0][template_idx] = 0
+                else:
+                    return result
+
+            return None
+            
+        for i , rule in enumerate(rule_k):
+            out1 = []
+            try:
+                if backward:
+                    out1 = rdchiralRunText(rule, x)
+                else:
+                    rxn_prod, rxn_agent, rxn_react = rule.split(">")
+                    reversed_rule = '(' + rxn_react + ')>' + rxn_agent + '>' + rxn_prod[1:-1]
+                    out1 = rdchiralRunText(reversed_rule, x)
+                # out1 = rdchiralRunText(rule, Chem.MolToSmiles(Chem.MolFromSmarts(x)))
+                if len(out1) == 0: continue
+                # if len(out1) > 1: print("more than two reactants."),print(out1)
+                out1 = sorted(out1)
+                for reactant in out1:
+                    reactants.append(reactant)
+                    scores.append(probs[0][i].item()/len(out1))
+                    scores_reference.append(probs_reference[0][i].item()/len(out1))
+                    templates.append(rule)
+                    templates_idx.append(i if self.realistic_filter else idx[0][i].item())
+            # out1 = rdchiralRunText(x, rule)
+            except (ValueError, RuntimeError) as e:
+                """
+                RuntimeError: Pre-condition Violation
+                Stereo atoms should be specified before specifying CIS/TRANS bond stereochemistry
+                Violation occurred on line 288 in file Code/GraphMol/Bond.h
+                Failed Expression: what <= STEREOE || getStereoAtoms().size() == 2
+                RDKIT: 2020.09.1
+                BOOST: 1_73
+                """
+                pass
+            except (IndexError, KeyError) as e:
+                """
+                rdchiral bug during function call rdchiralRunText(rule, mol)
+                This error can be reprobuced by the following code:
+                mol = 'C[C@H](OC(=O)C=O)C(=O)O'
+                rule = '([#8:1]-[C:2](=[O;D1;H0:3])-[CH;D2;+0:4]=[O;H0;D1;+0:5])>>[#8:1]-[C:2](=[O;D1;H0:3])-[C@@H;D3;+0:4](-[OH;D1;+0:5])-[C@H;D3;+0:4](-[OH;D1;+0:5])-[C:2](-[#8:1])=[O;D1;H0:3]'
+                out1 = rdchiralRunText(rule, mol)
+                """
+                pass
+        if len(reactants) == 0: return None
+        reactants_d = defaultdict(list)
+        for r, s, sr, t, id in zip(reactants, scores, scores_reference, templates, templates_idx):
+            if '.' in r:
+                str_list = sorted(r.strip().split('.'))
+                reactants_d['.'.join(str_list)].append((s, sr, t, id))
+            else:
+                reactants_d[r].append((s, sr, t, id))
+
+        reactants, scores, scores_reference, templates, templates_idx = merge(reactants_d)
+        total = sum(scores)
+        total_reference = sum(scores_reference)
+        scores = [s / total for s in scores]
+        scores_reference = [s / total_reference for s in scores_reference]
+
+        if sample_mode == 'molecule':
+            reactant_idx = np.random.choice(len(scores), p=scores)
+            return {'reactants':reactants[reactant_idx:reactant_idx+1],
+                    'scores' : scores[reactant_idx:reactant_idx+1],
+                    'template' : templates[reactant_idx:reactant_idx+1]}
+
+        return {'reactants':reactants,
+                'scores' : scores,
+                'scores_reference' : scores_reference,
+                'template' : templates,
+                'templates_idx': templates_idx}
 
 class ActionRepresentation(nn.Module):
     def __init__(self, state_dim, ac_dim, device):
@@ -92,7 +261,7 @@ class ActionRepresentation(nn.Module):
         return self.model(rxn)
         
         
-class ValueMLP(nn.Module):
+class QValueMLP(nn.Module):
   def __init__(self, n_layers, fp_dim, rxn_dim, latent_dim, dropout_rate, device):
       super(ValueMLP, self).__init__()
       self.n_layers = n_layers
@@ -120,16 +289,72 @@ class ValueMLP(nn.Module):
       x = torch.log(1 + torch.exp(x))
       return x
       
+         
+class ValueMLP(nn.Module):
+    def __init__(self, n_layers, fp_dim, latent_dim, dropout_rate, device):
+        super(ValueMLP, self).__init__()
+        self.n_layers = n_layers
+        self.fp_dim = fp_dim
+        self.latent_dim = latent_dim
+        self.dropout_rate = dropout_rate
+        self.device = device
+
+        layers = []
+        layers.append(nn.Linear(fp_dim, latent_dim))
+        # layers.append(nn.BatchNorm1d(latent_dim,
+        #                              track_running_stats=False))
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(self.dropout_rate))
+        for _ in range(self.n_layers - 1):
+            layers.append(nn.Linear(latent_dim, latent_dim))
+            # layers.append(nn.BatchNorm1d(latent_dim,
+            #                              track_running_stats=False))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(self.dropout_rate))
+        layers.append(nn.Linear(latent_dim, 1))
+
+        self.layers = nn.Sequential(*layers).to(device=device)
+
+    def forward(self, fps):
+        x = fps
+        x = self.layers(x)
+        x = torch.log(1 + torch.exp(x))
+
+        return x
         
         
-        
-        
-        
-        
-        
-        
-        
-        
+class PriorMLP(nn.Module):
+    def __init__(self, n_layers, fp_dim, latent_dim, dropout_rate, device):
+        super(PriorMLP, self).__init__()
+        self.n_layers = n_layers
+        self.fp_dim = fp_dim
+        self.latent_dim = latent_dim
+        self.dropout_rate = dropout_rate
+        self.device = device
+
+        layers = []
+        layers.append(nn.Linear(fp_dim, latent_dim))
+        # layers.append(nn.BatchNorm1d(latent_dim,
+        #                              track_running_stats=False))
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(self.dropout_rate))
+        for _ in range(self.n_layers - 1):
+            layers.append(nn.Linear(latent_dim, latent_dim))
+            # layers.append(nn.BatchNorm1d(latent_dim,
+            #                              track_running_stats=False))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(self.dropout_rate))
+        layers.append(nn.Linear(latent_dim, 1))
+
+        self.layers = nn.Sequential(*layers).to(device=device)
+
+    def forward(self, fps):
+        x = fps
+        x = self.layers(x)
+        # x = torch.log(1 + torch.exp(x))
+        x = torch.sigmoid(x)
+
+        return x
         
         
         

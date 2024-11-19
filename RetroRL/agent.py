@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 import numpy as np
 
-from models import MLPModel, ActionRepresentation, ValueMLP
+from models import MLPModel, ActionRepresentation, ValueMLP, PriorMLP
 from utils import smiles2array
 
 class RetroRL:
@@ -19,13 +19,22 @@ class RetroRL:
         self.policy_opt = torch.optim.Adam(self.one_step.net.parameters(), lr=0.001)
         self.one_step.net.eval()
         
-        self.value_net = ValueMLP(
-            n_layers=2, fp_dim=self.fp_dim, rxn_dim=self.one_step.net.n_rules, 
-            latent_dim=512, dropout_rate=0.1, device=device
+        self.syn_net = PriorMLP(
+            n_layers=1, fp_dim=self.fp_dim, latent_dim=128, 
+            dropout_rate=0.1, device=device
         )
+        self.syn_net.eval()
+        
+        self.value_net = ValueMLP(
+            n_layers=1, fp_dim=self.fp_dim, latent_dim=128, 
+            dropout_rate=0.1, device=device
+        )
+        
+        self.value_net.load_state_dict(torch.load('../saved_models/best_epoch_final_4.pt'))
+        
         self.value_target = ValueMLP(
-            n_layers=2, fp_dim=self.fp_dim, rxn_dim=self.one_step.net.n_rules, 
-            latent_dim=512, dropout_rate=0.1, device=device
+            n_layers=1, fp_dim=self.fp_dim, latent_dim=128, 
+            dropout_rate=0.1, device=device
         )
         self.value_target.load_state_dict(self.value_net.state_dict())
         self.value_opt = torch.optim.Adam(self.value_net.parameters(), lr=0.001)
