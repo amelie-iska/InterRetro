@@ -8,153 +8,132 @@ from models import MLPModel, ActionRepresentation, ValueMLP, PriorMLP
 from utils import smiles2array
 
 class RetroRL:
-    def __init__(self, one_step, discount, topk=10, fp_dim=2048, device='cuda'):
+    def __init__(self, one_step, discount, topk=10, fp_dim=2048, minibatch_size=1024, device='cuda'):
         self.fp_dim = fp_dim
         self.topk = topk
         self.device = device
         self.discount = discount
         self.one_step = one_step
+        self.minibatch_size = minibatch_size
         self.updates = 0
         
-        self.policy_opt = torch.optim.Adam(self.one_step.net.parameters(), lr=0.001)
+        self.actor_optim = torch.optim.Adam(self.one_step.net.parameters(), lr=0.001)
         self.one_step.net.eval()
         
         self.syn_net = PriorMLP(
             n_layers=1, fp_dim=self.fp_dim, latent_dim=128, 
-            dropout_rate=0.1, device=device
-        )
+            dropout_rate=0.1, device=device)
         self.syn_net.eval()
+        self.syn_net_optim = torch.optim.Adam(list(self.syn_net.parameters()), lr=0.001)
         
         self.value_net = ValueMLP(
             n_layers=1, fp_dim=self.fp_dim, latent_dim=128, 
-            dropout_rate=0.1, device=device
-        )
-        
+            dropout_rate=0.1, device=device)
         self.value_net.load_state_dict(torch.load('../saved_models/best_epoch_final_4.pt'))
-        
-        self.value_target = ValueMLP(
-            n_layers=1, fp_dim=self.fp_dim, latent_dim=128, 
-            dropout_rate=0.1, device=device
-        )
-        self.value_target.load_state_dict(self.value_net.state_dict())
-        self.value_opt = torch.optim.Adam(self.value_net.parameters(), lr=0.001)
+        self.value_optim = torch.optim.Adam(self.value_net.parameters(), lr=0.001)
         self.value_net.eval()
-        self.value_target.eval()
     
     
-    def update(self, batch):
-        critic_info = self.train_critic(batch)
-        actor_info = {}#self.train_actor(batch)
-        self.updates = self.updates + 1
-        if self.updates % 2 == 0:
-            self.update_value_target()
-        return {**critic_info, 
-                **actor_info,
-                **{'training/updates': self.updates}}
-    
-    def train_actor(self, batch):
-        obs = torch.Tensor(batch['obs']).to(self.device)
-        preds_reference = self.one_step.reference_net(obs).detach()
-        preds_reference, idx_topk = torch.topk(preds_reference, k=self.topk)
-        candidate_actions = F.one_hot(idx_topk, num_classes=self.one_step.net.n_rules)
-        
-        q_values = []
-        for i in range(self.topk):
-            q_value = self.value_net(obs, candidate_actions[:, i, :]).squeeze()
-            q_values.append(q_value)
-        q_values = torch.stack(q_values, dim=1) 
-        targets = torch.argmax(q_values, dim=1)
-        # Here is a bug
-        
-        self.one_step.net.train()
-        preds = self.one_step.net(obs)
-        main_loss = F.cross_entropy(preds, targets)
-        
-        preds_topk = torch.gather(F.log_softmax(preds, dim=1), 1, idx_topk)
-        reference_topk = F.softmax(preds_reference, dim=1)
-        kl_divergence = F.kl_div(preds_topk, reference_topk, reduction='batchmean')
-        
-        actor_loss = main_loss + kl_divergence
+    def fit_syn(self, mols, pris, epoch_num=1, once=True):
+        fps = np.array([smiles2array(mol, fp_dim=self.fp_dim) for mol in mols])
+        pris = np.array(pris)
+        loss = [] # Append all batches in all epochs. 
+        self.syn_net.train()
 
-        self.policy_opt.zero_grad()
-        actor_loss.backward()
-        self.policy_opt.step()
-        self.one_step.net.eval()
-        
-        with torch.no_grad():
-            _, pred_classes = torch.max(preds, dim=1)
-            accuracy = (pred_classes == targets).float().mean()
+        if once: # move all collected mols and pris from cpu to gpu once. 
+            fps = torch.FloatTensor(fps).to(self.device)
+            pris = torch.FloatTensor(pris).to(self.device)
+
+        for _ in range(epoch_num):
+            fps, pris = self._shuffle_data(fps, pris)
+            for i in range(0, len(mols), self.minibatch_size):
+                fps_batch = fps[i:i+self.minibatch_size]
+                pris_batch = pris[i:i+self.minibatch_size].unsqueeze(-1)
+                if not once: # move current batch from cpu to gpu. 
+                    fps_batch = torch.FloatTensor(fps_batch).to(self.device)
+                    pris_batch = torch.FloatTensor(pris_batch).to(self.device)
+
+                pris_batch_pred = self.syn_net(fps_batch)
+                loss_minibatch = F.binary_cross_entropy(pris_batch_pred, pris_batch)
+                loss.append(loss_minibatch.item())
+                
+                self.syn_net_optim.zero_grad()
+                loss_minibatch.backward()
+                torch.nn.utils.clip_grad_norm_(self.syn_net.parameters(), 0.5)
+                self.syn_net_optim.step()
+        self.syn_net.eval()
+        return {'syn/loss': np.mean(loss).item()}
     
-        return {'training/actor_loss': actor_loss.item(),
-                'training/accuracy': accuracy.item(),
-                'training/kl_divergence': kl_divergence.item(),
-                'training/main_loss': main_loss.item()}
-    
-    def train_critic(self, batch):
-        max_len =  max(len(next_obs) for next_obs in batch['next_obs'])
-        batch_size = len(batch['next_obs'])
-        obs = torch.Tensor(batch['obs']).to(self.device)
-        acs = torch.Tensor(batch['actions']).to(self.device)
-        
-        padded_next_obs = torch.zeros((batch_size, max_len, self.fp_dim), device=self.device)
-        padded_rewards = torch.zeros((batch_size, max_len, 1), device=self.device)
-        padded_dones = torch.zeros((batch_size, max_len, 1), device=self.device)
-        padded = torch.zeros((batch_size, max_len, 1), device=self.device) + torch.finfo(torch.float32).max
-        for i, (next_obs, rewards, dones) in enumerate(zip(batch['next_obs'], batch['rewards'], batch['dones'])):
-            stacked_obs = torch.stack([torch.Tensor(obs).to(self.device) for obs in next_obs])
-            padded_next_obs[i, :stacked_obs.size(0)] = stacked_obs
-            padded_rewards[i, :len(rewards)] = torch.Tensor(rewards).unsqueeze(1).to(self.device)
-            padded_dones[i, :len(dones)] = torch.Tensor(dones).unsqueeze(1).to(self.device)
-            padded[i, :len(dones)] = 1
-        
-        with torch.no_grad():
-            flat_next_obs = padded_next_obs.view(-1, self.fp_dim)
-            preds = self.one_step.reference_net(flat_next_obs)
-            _, next_ac_idx = torch.max(preds, dim=1)
-            next_actions = F.one_hot(next_ac_idx, num_classes=self.one_step.net.n_rules).float()
-            next_actions = next_actions.view(batch_size, max_len, self.one_step.net.n_rules)
-            q_values = self.value_target(flat_next_obs, next_actions.view(-1, next_actions.size(-1)))
-            q_values = q_values.view(batch_size, max_len, 1)
-            
-            # correct rxn to building blocks (r=1, d=0) -> targets = r
-            # correct rxn to non-building block (r=0, d=0) -> targets = 0.8 * q_values
-            # incorrect rxn (r=0, d=1) -> targets = 0
-            targets = (padded_rewards + 0.8 * (1 - padded_dones) * (1 - padded_rewards) * q_values) * padded
-            targets = targets.min(dim=1).values
-            
+    def fit_value(self, mols, vals, epoch_num=1, once=True):
+        fps = np.array([smiles2array(mol, fp_dim=self.fp_dim) for mol in mols])
+        vals = np.array(vals)
+        loss = [] # Append all batches in all epochs. 
         self.value_net.train()
-        preds = self.value_net(obs, acs)
-        loss = F.mse_loss(preds, targets)
 
-        self.value_opt.zero_grad()
-        loss.backward()
-        self.value_opt.step()
+        if once: # move all collected mols and pris from cpu to gpu once. 
+            fps = torch.FloatTensor(fps).to(self.device)
+            vals = torch.FloatTensor(vals).to(self.device)
+
+        for _ in range(epoch_num):
+            fps, vals = self._shuffle_data(fps, vals)
+            for i in range(0, len(mols), self.minibatch_size):
+                fps_batch = fps[i:i+self.minibatch_size]
+                vals_batch = vals[i:i+self.minibatch_size].unsqueeze(-1)
+                if not once: # move current batch from cpu to gpu. 
+                    fps_batch = torch.FloatTensor(fps_batch).to(self.device)
+                    vals_batch = torch.FloatTensor(vals_batch).to(self.device)
+
+                vals_batch_pred = self.value_net(fps_batch)
+                loss_minibatch = F.mse_loss(vals_batch_pred, vals_batch)
+                loss.append(loss_minibatch.item())
+                self.value_optim.zero_grad()
+                loss_minibatch.backward()
+                torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), 0.5)
+                self.value_optim.step()
+
         self.value_net.eval()
-
-        return {'training/critic_loss': loss.item(),
-                'training/critic_targets': targets.mean().item(),
-                'training/critic_predicts': preds.mean().item()}
-        
+        return {'value/loss': np.mean(loss).item()}
     
-    def get_action(self, a, exploration=False):
-        arr = smiles2array(a, self.fp_dim)
-        obs = torch.Tensor(arr[np.newaxis]).to(self.device)
-        preds_reference = self.one_step.reference_net(obs).detach()
-        preds_reference, idx_topk = torch.topk(preds_reference, k=self.topk)
-        idx_topk = idx_topk.squeeze(dim=0)
+    def fit_actor(self, mols, tmps, epoch_num=1, once=True):
+        fps = np.array([smiles2array(mol, fp_dim=self.fp_dim) for mol in mols])
+        tmps = np.array(tmps)
+        loss = []
+        self.one_step.net.train()
+        for m in self.one_step.net.modules():
+            if isinstance(m, torch.nn.BatchNorm1d):
+                m.eval()
 
-        if exploration:
-            probs = F.softmax(preds_reference, dim=1)
-            #probs = torch.ones_like(preds_reference) / self.topk
-            idx = torch.multinomial(probs, num_samples=1).cpu().item()
-        else:
-            idx = 0
-        rxn_idx = idx_topk[idx].cpu().item()
-        rxn = self.one_step.idx2rules[rxn_idx]
-        return rxn
-
-    def update_value_target(self):
-        for param, target_param in zip(self.value_net.parameters(), self.value_target.parameters()):
-            target_param.data.copy_(0.005 * param.data + 0.995 * target_param.data)
+        if once: # move all collected mols and pris from cpu to gpu once. 
+            fps = torch.FloatTensor(fps).to(self.device)
+            tmps = torch.LongTensor(tmps).to(self.device)
+ 
+        for _ in range(epoch_num):
+            fps, tmps = self._shuffle_data(fps, tmps)
+            for i in range(0, len(mols), self.minibatch_size):
+ 
+                fps_batch = fps[i:i+self.minibatch_size]
+                tmps_batch = tmps[i:i+self.minibatch_size]
+                if not once: # move current batch from cpu to gpu. 
+                    fps_batch = torch.FloatTensor(fps_batch).to(self.device)
+                    tmps_batch = torch.LongTensor(tmps_batch).to(self.device)
+ 
+                action_logits = self.one_step.net(fps_batch)
+                loss_minibatch = F.cross_entropy(action_logits, tmps_batch)
+                print(loss_minibatch)
+                loss.append(loss_minibatch.item())
+                self.actor_optim.zero_grad()
+                loss_minibatch.backward()
+                torch.nn.utils.clip_grad_norm_(self.one_step.net.parameters(), 0.5)
+                self.actor_optim.step()
+ 
+        self.one_step.net.eval()
+        return {'actor/loss': np.mean(loss).item()}
+    
+    def _shuffle_data(self, features, labels):
+        shuffled_idx = np.arange(len(features))
+        np.random.shuffle(shuffled_idx)
+        features = features[shuffled_idx]
+        labels = labels[shuffled_idx]
+        return features, labels
             
             

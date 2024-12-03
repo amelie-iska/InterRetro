@@ -15,6 +15,7 @@ from rdkit import Chem, RDLogger
 RDLogger.DisableLog('rdApp.*')
 from rdchiral.main import rdchiralRunText
 
+from mcts import mcts
 from agent import RetroRL
 from envs import RetroEnv
 from utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut, prepare_onlinemcts_planner
@@ -66,7 +67,7 @@ env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
 eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 
 one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
-agent = RetroRL(one_step, topk=args.topk, discount=args.discount)
+agent = RetroRL(one_step, topk=args.topk, discount=args.discount, minibatch_size=args.minibatch_size)
 
 buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
 
@@ -95,7 +96,27 @@ onlinemcts_handle = prepare_onlinemcts_planner(one_step=one_step,
                                                viz=True, 
                                                viz_dir=exp_folder+'/viz')
 
-onlinemcts_handle(target_mols[0], 0, test=True)
+logging.info("Training starts ...")
+curr_num = 0
+train_target_mols_idx = list(range(len(target_mols)))
+random.shuffle(train_target_mols_idx)
+for epoch in args.epochs:
+
+    for i in tqdm(range(0, len(target_mols), args.batch_size)):
+        target_mols_id_batch = train_target_mols_idx[i: i+args.batch_size]
+        target_mols_batch = [target_mols[idx] for idx in target_mols_id_batch]
+        
+        mols_r_batch, pris_batch, mols_v_batch, vals_batch, mols_t_batch, tmps_batch = \
+            mcts(target_mols_batch, target_mols_id_batch, test=False)
+        
+        prior_info = agent.fit_syn(mols_r_batch, pris_batch, epoch_num=8)
+        critic_loss = agent.fit_value(mols_v_batch, vals_batch, epoch_num=8)
+        actor_loss = agent.fit_actor(mols_t_batch, tmps_batch, epoch_num=8)
+    
+        if i % args.evaluation_interval == 0:
+            _, _, _, _, _, _, test_batch_result = mcts(eval_mols, list(range(len(eval_mols))), test=True)
+        
+
 
 logging.info("Training starts ...")
 eval_info1 = env.eval(agent, mode='training')
