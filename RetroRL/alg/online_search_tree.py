@@ -68,7 +68,7 @@ class OnlineSearchTree:
         # deadend case #1 (invalid): cannot pass rdkit
         if templates is None:      # No expansion results
             mol_node.is_deadend = mol_node.is_invalid = True
-            logging.info('Expansion fails on %s!' % mol_node.mol)
+            #logging.info('Expansion fails on %s!' % mol_node.mol)
             return
 
         ancestors = mol_node.get_ancestors()

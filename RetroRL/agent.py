@@ -1,4 +1,5 @@
 
+import os
 import torch
 import torch.nn.functional as F
 
@@ -62,7 +63,7 @@ class RetroRL:
                 torch.nn.utils.clip_grad_norm_(self.syn_net.parameters(), 0.5)
                 self.syn_net_optim.step()
         self.syn_net.eval()
-        return {'syn/loss': np.mean(loss).item()}
+        return {'training_info/syn_loss': np.mean(loss).item()}
     
     def fit_value(self, mols, vals, epoch_num=1, once=True):
         fps = np.array([smiles2array(mol, fp_dim=self.fp_dim) for mol in mols])
@@ -92,7 +93,7 @@ class RetroRL:
                 self.value_optim.step()
 
         self.value_net.eval()
-        return {'value/loss': np.mean(loss).item()}
+        return {'training_info/value_loss': np.mean(loss).item()}
     
     def fit_actor(self, mols, tmps, epoch_num=1, once=True):
         fps = np.array([smiles2array(mol, fp_dim=self.fp_dim) for mol in mols])
@@ -119,7 +120,6 @@ class RetroRL:
  
                 action_logits = self.one_step.net(fps_batch)
                 loss_minibatch = F.cross_entropy(action_logits, tmps_batch)
-                print(loss_minibatch)
                 loss.append(loss_minibatch.item())
                 self.actor_optim.zero_grad()
                 loss_minibatch.backward()
@@ -127,7 +127,7 @@ class RetroRL:
                 self.actor_optim.step()
  
         self.one_step.net.eval()
-        return {'actor/loss': np.mean(loss).item()}
+        return {'training_info/actor_loss': np.mean(loss).item()}
     
     def _shuffle_data(self, features, labels):
         shuffled_idx = np.arange(len(features))
@@ -136,4 +136,43 @@ class RetroRL:
         labels = labels[shuffled_idx]
         return features, labels
             
-            
+
+    def save(self, save_path, epoch):
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
+        save_data = {
+            'actor_net_state_dict': self.one_step.net.state_dict(),
+            'actor_optim_state_dict': self.actor_optim.state_dict(),
+            'value_net_state_dict': self.value_net.state_dict(),
+            'value_optim_state_dict': self.value_optim.state_dict(),
+            'syn_net_state_dict': self.syn_net.state_dict(),
+            'syn_net_optim_state_dict': self.syn_net_optim.state_dict(),
+            'epoch': epoch
+        }
+        
+        save_file = os.path.join(save_path, f'models_epoch{epoch}.pt')
+        torch.save(save_data, save_file)
+        print(f"Models and optimisers saved at {save_file}")
+        return save_data
+
+    def load(self, load_path):
+        if not os.path.exists(load_path):
+            raise FileNotFoundError(f"The specified file {load_path} does not exist.")
+        
+        checkpoint = torch.load(load_path, map_location=self.device)
+        
+        self.one_step.net.load_state_dict(checkpoint['actor_net_state_dict'])
+        self.actor_optim.load_state_dict(checkpoint['actor_optim_state_dict'])
+        self.value_net.load_state_dict(checkpoint['value_net_state_dict'])
+        self.value_optim.load_state_dict(checkpoint['value_optim_state_dict'])
+        self.syn_net.load_state_dict(checkpoint['syn_net_state_dict'])
+        self.syn_net_optim.load_state_dict(checkpoint['syn_net_optim_state_dict'])
+        epoch = checkpoint.get('epoch', -1)
+        
+        self.one_step.net.to(self.device)
+        self.value_net.to(self.device)
+        self.syn_net.to(self.device)
+
+        print(f"Models and optimisers loaded from {load_path}. Resuming from epoch {epoch}")
+        return epoch

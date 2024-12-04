@@ -1,6 +1,6 @@
 import numpy as np
 
-def mcts(self, target_mols, target_mol_ids, test=False):
+def mcts(target_mols, target_mol_ids, onlinemcts_handle, test=False):
         batch_result = {
             "ids": [],
             "succ": [],
@@ -21,7 +21,7 @@ def mcts(self, target_mols, target_mol_ids, test=False):
         }
         mols_r_batch, pris_batch, mols_v_batch, vals_batch, mols_t_batch, tmps_batch = [], [], [], [], [], []
         for mol_id, target_mol in zip(target_mol_ids, target_mols):
-            succ, (mol_tree, iter), result = self.onlinemcts_handle(target_mol, mol_id, test=test)
+            succ, (mol_tree, iter), result = onlinemcts_handle(target_mol, mol_id, test=test)
             mols_r_batch += result["mols_r"]
             pris_batch += result["pris"]
             mols_v_batch += result["mols_v"]
