@@ -4,10 +4,12 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--device', type=int, default=0)
+    parser.add_argument('--n_gpus', type=int, default=1)
+    parser.add_argument('--n_processes', type=int, default=2)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
-    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
+    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=0)
     parser.add_argument('--minirun',  type=int, choices=[0, 1], default=0)
 
     parser.add_argument('--training_interval', type=int, default=5)
@@ -25,6 +27,7 @@ def get_args():
     parser.add_argument('--discount', type=float, default=0.95)
     
     # MCTS
+    parser.add_argument('--use_value_fn',  type=int, choices=[0, 1], default=1)
     parser.add_argument('--num_simulations', type=int, default=100)
     parser.add_argument('--PUCT_coef', type=float, default=1.0)
     parser.add_argument('--use_single_network', type=int, choices=[0, 1], default=1)
