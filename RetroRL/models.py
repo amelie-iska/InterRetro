@@ -87,7 +87,9 @@ class MLPModel:
         preds_reference = self.reference_net(arr).detach()
 
         if self.realistic_filter:
+            # preds_ref is a probability distribution over all templates
             preds_reference, idx_topk = torch.topk(preds_reference, k=topk)
+            # We take the templates suggested by net but agreed by ref_net
             preds = preds.gather(1, idx_topk)
         else:
             preds, idx_topk = torch.topk(preds, k=topk)

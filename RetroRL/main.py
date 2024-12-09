@@ -22,9 +22,6 @@ from envs import RetroEnv
 from utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut
 from config_parser import get_args
 from models import MLPModel, ActionRepresentation, ValueMLP
-from data_loader import create_molecule_dataloader
-from buffer import ReplayBuffer
-from trajectories import TrajectoryCreator
 
 def main():
 
@@ -65,14 +62,10 @@ def main():
     building_blocks = prepare_starting_molecules(args.building_blocks_path)
     logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
     
-    one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
+    one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, 
+                        device=args.device, realistic_filter=args.realistic_filter)
     agent = RetroRL(one_step, topk=args.topk, discount=args.discount, minibatch_size=args.minibatch_size)
-    '''
-    env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
-    eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
-    buffer = ReplayBuffer(capacity=args.buffer_capacity, obs_dim=args.fp_dim, action_dim=len(agent.one_step.rules2idx))
-    traj_creator = TrajectoryCreator(agent)
-    '''
+
     
     def load_model_to_runner(model_net, value_net, prior_net, runner, n_gpus=1):
         if n_gpus > 1:

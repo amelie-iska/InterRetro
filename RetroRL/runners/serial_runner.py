@@ -20,7 +20,8 @@ class SerialRunner:
         device = torch.device('cuda' if args.n_gpus > 0 else 'cpu')
 
         # load one-step model
-        one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, device=args.device)
+        one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, 
+                            device=args.device, realistic_filter=self.realistic_filter)
         starting_mols = prepare_starting_molecules(args.building_blocks_path)
         self.model_net = one_step.net
 
