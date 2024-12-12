@@ -10,6 +10,19 @@ from datetime import datetime
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+def load_model_to_runner(model_net, value_net, prior_net, runner, n_gpus=1):
+    if n_gpus > 1:
+        # load model parameters to subprocesses using different gpus
+        model_net.cpu()
+        value_net.cpu()
+        prior_net.cpu()
+        runner.load_model(model_net.state_dict(), prior_net.state_dict(), value_net.state_dict())
+        model_net.cuda()
+        value_net.cuda()
+        prior_net.cuda()
+    else:
+        runner.load_model(model_net.state_dict(), prior_net.state_dict(), value_net.state_dict())
+
 
 def minicut(input, minirun):
     if minirun:

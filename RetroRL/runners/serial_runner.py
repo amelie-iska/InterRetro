@@ -1,9 +1,11 @@
 import os
 import numpy as np
 
-from alg import online_mcts
+from alg import online_mcts, molstar
 from models import MLPModel, ValueMLP, PriorMLP
 from utils import prepare_starting_molecules, smiles2array
+
+import logging
 
 import torch
 import torch.multiprocessing as mp
@@ -18,17 +20,18 @@ class SerialRunner:
     def __init__(self, args):
         self.args = args
         device = torch.device('cuda' if args.n_gpus > 0 else 'cpu')
+        
+        building_blocks = prepare_starting_molecules(args.building_blocks_path)
+        logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
 
         # load one-step model
         one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, 
-                            device=args.device, realistic_filter=self.realistic_filter)
-        starting_mols = prepare_starting_molecules(args.building_blocks_path)
+                            device=args.device, realistic_filter=args.realistic_filter)
         self.model_net = one_step.net
 
         # prepare value function
-        self.value_net = ValueMLP(
-            n_layers=1, fp_dim=args.fp_dim, latent_dim=128, 
-            dropout_rate=0.1, device=device)
+        self.value_net = ValueMLP(n_layers=1, fp_dim=args.fp_dim, latent_dim=128,
+                                  dropout_rate=0.1, device=device)
         self.value_net.eval()
 
         if args.use_value_fn:
@@ -41,9 +44,8 @@ class SerialRunner:
             value_fn = lambda x: 0
 
         # prepare prior function
-        self.prior_net = PriorMLP(
-            n_layers=1, fp_dim=args.fp_dim, latent_dim=128, 
-            dropout_rate=0.1, device=device)
+        self.prior_net = PriorMLP(n_layers=1, fp_dim=args.fp_dim, latent_dim=128,
+                                  dropout_rate=0.1, device=device)
         self.prior_net.eval()
 
         def prior_fn(mol):
@@ -55,28 +57,17 @@ class SerialRunner:
         self.onlinemcts_handle = lambda x, y=0, test=False: online_mcts(
             target_mol=x,
             target_mol_id=y,
-            starting_mols=starting_mols,
-            expand_fn=lambda x: one_step.run(x, topk=5),
+            starting_mols=building_blocks,
+            expand_fn=lambda x: one_step.run(x, topk=args.expansion_topk),
             value_fn=value_fn,
             prior_fn=prior_fn,
-            iterations=100,
+            iterations=args.iterations,
             args=args,
             viz=False,
             viz_dir='/viz',
             test=test,
         )
-        '''
-        self.molstar_handle = prepare_molstar_planner(
-            one_step=one_step,
-            value_fn=value_fn,
-            starting_mols=starting_mols,
-            expansion_topk=args.expansion_topk,
-            iterations=args.iterations,
-            viz=args.viz,
-            viz_dir=args.viz_dir,
-            draw_mols=args.draw_mols,
-        )
-        '''
+        
 
     def run(self, target_mols, target_mol_ids, test=False):
         batch_result = {
