@@ -205,7 +205,8 @@ def take_reaction(mol_tree, mol_node, temperature=1, test=False):
     if not (test and mol_node.succ): # during test, if mol_node is successful, then no need to add children to the node_buffer
         for mol in reaction.children:
             if not mol.is_known and not (test and mol.succ):
-                mol_tree.nodes_buffer.put(mol)
+                if not mol.is_deadend:
+                    mol_tree.nodes_buffer.put(mol)
     mol_node.is_taken = True
     reaction.is_taken = True
     return reaction

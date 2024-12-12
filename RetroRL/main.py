@@ -78,11 +78,13 @@ def main():
             
             # Evaluation
             if i % args.evaluation_interval == 0:
-                _, _, _, _, _, _, test_batch_result = runner.mcts(eval_mols[:20], list(range(len(eval_mols[:20]))), test=True)
+                _, _, _, _, _, _, test_batch_result = runner.mcts(eval_mols[:50], list(range(len(eval_mols[:50]))), test=True)
                 training_info['evaluation/success_rate'] = np.array(test_batch_result['succ']).sum()/len(test_batch_result['succ'])
                 training_info['evaluation/depth'] = np.array(test_batch_result['route_lens']).sum()/len(test_batch_result['route_lens'])
                 training_info['evaluation/model_calls'] = np.array(test_batch_result['iter']).sum()/len(test_batch_result['iter'])
                 training_info['evaluation/route_shortest_cost'] = np.array(test_batch_result['route_shortest_cost']).sum()/len(test_batch_result['route_shortest_cost'])
+                logging.info(f"Training Info ep {epoch} mol {i}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in training_info.items()]))
+                print(X)
             
             # Training
             target_mols_id_batch = train_target_idx[i: i+args.batch_size]

@@ -28,6 +28,7 @@ class SerialRunner:
         one_step = MLPModel(state_path=args.state_path, template_path=args.template_path, 
                             device=args.device, realistic_filter=args.realistic_filter)
         self.model_net = one_step.net
+        self.model_net.eval()
 
         # prepare value function
         self.value_net = ValueMLP(n_layers=1, fp_dim=args.fp_dim, latent_dim=128,

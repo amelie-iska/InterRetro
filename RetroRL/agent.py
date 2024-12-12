@@ -17,6 +17,7 @@ class RetroRL:
                             device=args.device, realistic_filter=args.realistic_filter)
         self.actor_optim = torch.optim.Adam(self.actor.net.parameters(), lr=0.001)
         self.actor.net.eval()
+        self.actor.reference_net.eval()
         
         self.syn_net = PriorMLP(n_layers=1, fp_dim=args.fp_dim, latent_dim=128, 
                                 dropout_rate=0.1, device=args.device)
@@ -25,7 +26,7 @@ class RetroRL:
         
         self.value_net = ValueMLP(n_layers=1, fp_dim=args.fp_dim, latent_dim=128, 
                                   dropout_rate=0.1, device=args.device)
-        # self.value_net.load_state_dict(torch.load('../saved_models/best_epoch_final_4.pt'))
+        self.value_net.load_state_dict(torch.load('../saved_models/best_epoch_final_4.pt'))
         self.value_optim = torch.optim.Adam(self.value_net.parameters(), lr=0.001)
         self.value_net.eval()
     

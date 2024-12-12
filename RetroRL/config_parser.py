@@ -23,10 +23,10 @@ def get_args():
     parser.add_argument('--fp_dim', type=int, default=2048)
     
     # MCTS
-    parser.add_argument('--expansion_topk', type=int, default=50)
-    parser.add_argument('--iterations', type=int, default=500)
-    parser.add_argument('--use_value_fn',  type=int, choices=[0, 1], default=1)
-    parser.add_argument('--num_simulations', type=int, default=100)
+    parser.add_argument('--expansion_topk', type=int, default=50) # 50
+    parser.add_argument('--iterations', type=int, default=500) # 500
+    parser.add_argument('--use_value_fn',  type=int, choices=[0, 1], default=0)
+    parser.add_argument('--num_simulations', type=int, default=100) # 100
     parser.add_argument('--PUCT_coef', type=float, default=1.0)
     parser.add_argument('--use_single_network', type=int, choices=[0, 1], default=1)
     parser.add_argument('--depth', type=int, default=15)
