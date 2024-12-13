@@ -7,7 +7,8 @@ import torch.nn.functional as F
 from collections import defaultdict, OrderedDict
 from rdchiral.main import rdchiralRunText
 
-from utils import smiles2array
+from retrorl_utils import smiles2array
+
 
 def merge(reactant_d):
     ret = []
@@ -357,7 +358,6 @@ class PriorMLP(nn.Module):
         x = torch.sigmoid(x)
 
         return x
-        
         
         
         

@@ -5,16 +5,16 @@ def get_args():
 
     parser.add_argument('--device', type=int, default=0)
     parser.add_argument('--n_gpus', type=int, default=1)
-    parser.add_argument('--n_processes', type=int, default=2)
+    parser.add_argument('--n_processes', type=int, default=1)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
     parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=0)
-    parser.add_argument('--minirun',  type=int, choices=[0, 1], default=0)
+    parser.add_argument('--minirun',  type=int, choices=[0, 1], default=1)
     
     parser.add_argument('--evaluation_interval', type=int, default=1)
     parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--runner', type=str, default='parallel')
+    parser.add_argument('--runner', type=str, default='serial')
     
     # One-step model
     parser.add_argument('--realistic_filter', type=int, choices=[0, 1], default=1)
@@ -24,8 +24,8 @@ def get_args():
     
     # MCTS
     parser.add_argument('--expansion_topk', type=int, default=50) # 50
-    parser.add_argument('--iterations', type=int, default=500) # 500
-    parser.add_argument('--use_value_fn',  type=int, choices=[0, 1], default=0)
+    parser.add_argument('--iterations', type=int, default=50) # 500
+    parser.add_argument('--use_value_fn',  type=int, choices=[0, 1], default=1)
     parser.add_argument('--num_simulations', type=int, default=100) # 100
     parser.add_argument('--PUCT_coef', type=float, default=1.0)
     parser.add_argument('--use_single_network', type=int, choices=[0, 1], default=1)
@@ -36,6 +36,7 @@ def get_args():
     parser.add_argument('--building_blocks_path', type=str, default='../dataset/origin_dict_canonical.csv')
     parser.add_argument('--state_path', type=str, default='../one_step_model/saved_rollout_state_1_2048.ckpt')
     parser.add_argument('--template_path', type=str, default='../one_step_model/template_rules_1.dat')
+    parser.add_argument('--graph2edits_model', type=str, default='Graph2Edits/experiments/uspto_50k/without_rxn_class/27-06-2022--10-27-22/epoch_123.pt')
     
     args = parser.parse_args()
     

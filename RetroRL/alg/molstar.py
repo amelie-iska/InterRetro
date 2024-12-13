@@ -71,7 +71,7 @@ def molstar(target_mol, target_mol_id, starting_mols, expand_fn, value_fn,
 
             else:
                 mol_tree.expand(m_next, None, None, None)
-                logging.info('Expansion fails on %s!' % m_next.mol)
+                # logging.info('Expansion fails on %s!' % m_next.mol)
 
         logging.info('Final search status | success value | iter: %s | %s | %d'
                      % (str(mol_tree.search_status), str(mol_tree.root.succ_value), i+1))

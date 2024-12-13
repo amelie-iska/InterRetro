@@ -3,7 +3,7 @@ import numpy as np
 
 from alg import online_mcts
 from models import MLPModel, ValueMLP, PriorMLP
-from utils import prepare_starting_molecules, smiles2array
+from retrorl_utils import prepare_starting_molecules, smiles2array
 
 import torch
 import torch.multiprocessing as mp

@@ -18,12 +18,11 @@ from rdchiral.main import rdchiralRunText
 from alg import online_mcts
 from runners import SerialRunner, ParallelRunner
 from agent import RetroRL
-from utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut, \
+from retrorl_utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut, \
     load_model_to_runner
 from config_parser import get_args
 
 def main():
-
     args = get_args()
     args.seed = set_seeds(args.seed)
     exp_folder = create_exp(args.seed, args.group)
@@ -40,6 +39,9 @@ def main():
         json.dump(args.__dict__, f, indent=4)
     if args.enable_wandb:
         wandb.init(project=args.project, config=args, group=args.group, name='{}_seed{}'.format(args.group, args.seed))
+    
+    
+  
     
     routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun)
     logging.info(f"{len(routes)} training routes have been loaded.")
@@ -58,15 +60,12 @@ def main():
     eval_mols = list(set(eval_mols))
     logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
     
-    agent = RetroRL(args)
     
-    if args.runner == 'serial':
-        runner = SerialRunner(args)
-    elif args.runner == 'parallel':
-        runner = ParallelRunner(args)
-    else:
-        raise NotImplementedError(f"Runner type '{args.runner}' is invalid. ")
-    load_model_to_runner(agent.actor.net, agent.value_net, agent.syn_net, runner, 1)
+    
+    
+    agent = RetroRL(args)
+   
+    
     
     logging.info("Training starts ...")
     train_target_idx = list(range(len(target_mols)))
@@ -76,6 +75,10 @@ def main():
         random.shuffle(train_target_idx)
         for i in tqdm(range(0, len(target_mols), args.batch_size)):
             
+            
+            print(X)
+            
+            
             # Evaluation
             if i % args.evaluation_interval == 0:
                 _, _, _, _, _, _, test_batch_result = runner.mcts(eval_mols[:50], list(range(len(eval_mols[:50]))), test=True)
@@ -84,7 +87,6 @@ def main():
                 training_info['evaluation/model_calls'] = np.array(test_batch_result['iter']).sum()/len(test_batch_result['iter'])
                 training_info['evaluation/route_shortest_cost'] = np.array(test_batch_result['route_shortest_cost']).sum()/len(test_batch_result['route_shortest_cost'])
                 logging.info(f"Training Info ep {epoch} mol {i}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in training_info.items()]))
-                print(X)
             
             # Training
             target_mols_id_batch = train_target_idx[i: i+args.batch_size]

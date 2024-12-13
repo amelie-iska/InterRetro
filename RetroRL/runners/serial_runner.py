@@ -3,7 +3,7 @@ import numpy as np
 
 from alg import online_mcts, molstar
 from models import MLPModel, ValueMLP, PriorMLP
-from utils import prepare_starting_molecules, smiles2array
+from retrorl_utils import prepare_starting_molecules, smiles2array
 
 import logging
 
@@ -67,6 +67,18 @@ class SerialRunner:
             viz=False,
             viz_dir='/viz',
             test=test,
+        )
+        
+        self.molstar_handle = lambda x, y=0: molstar(
+            target_mol=x,
+            target_mol_id=y,
+            starting_mols=building_blocks,
+            expand_fn=lambda x: one_step.run(x, topk=args.expansion_topk),
+            value_fn=value_fn,
+            iterations=args.iterations,
+            viz=False,
+            viz_dir='/viz',
+            draw_mols=False,
         )
         
 
@@ -146,28 +158,7 @@ class SerialRunner:
                 batch_result["route_shortest_cost"].append(mol_tree.root.succ_len)
 
         return mols_r_batch, pris_batch, mols_v_batch, vals_batch, mols_t_batch, tmps_batch, batch_result
-
-    def plan(self, target_mols, target_mol_ids):
-        mols_batch, vals_batch, tmps_batch = [], [], []
-        batch_result = {
-            'ids': [],
-            'succ': [],
-            'iter': [],
-            'route_costs': [],
-            'route_lens': [],
-        }
-        for mol_id, target_mol in zip(target_mol_ids, target_mols):
-            # generate training data
-            succ, (mols, vals, tmps) = self.retrostar_handle(target_mol, mol_id)
-            mols_batch += mols
-            vals_batch += vals
-            tmps_batch += tmps
-
-            # record batch results
-            batch_result['ids'].append(mol_id)
-            batch_result['succ'].append(succ)
-
-        return mols_batch, vals_batch, tmps_batch, batch_result
+    
 
     def retro(self, target_mols, target_mol_ids):
         batch_result = {
