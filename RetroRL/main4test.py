@@ -15,6 +15,7 @@ from rdkit import Chem, RDLogger
 RDLogger.DisableLog('rdApp.*')
 from rdchiral.main import rdchiralRunText
 
+from env import RetroEnv
 from alg import online_mcts
 from runners import SerialRunner, ParallelRunner
 from agent import RetroRL
@@ -60,14 +61,40 @@ for route in eval_routes:
 eval_mols = list(set(eval_mols))
 logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
 
+building_blocks = prepare_starting_molecules(args.building_blocks_path)
+logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
 
-
-
+env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
+eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 agent = RetroRL(args)
    
 
 
 logging.info("Training starts ...")
+for epoch in range(args.epochs):
+    for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+
+        logs = {}
+
+
+        if mol_idx % args.evaluation_interval == 0:
+            eval_info1 = env.eval(agent, mode='training')
+            eval_info2 = eval_env.eval(agent, mode='evaluation')
+            logs.update(eval_info1 | eval_info2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 train_target_idx = list(range(len(target_mols)))
 training_info = {}
 for epoch in range(args.epochs):
