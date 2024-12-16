@@ -72,11 +72,12 @@ agent = RetroRL(args)
 
 logging.info("Training starts ...")
 for epoch in range(args.epochs):
-    for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+    for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, 
+                        desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
 
         logs = {}
 
-
+        print(X)
         if mol_idx % args.evaluation_interval == 0:
             eval_info1 = env.eval(agent, mode='training')
             eval_info2 = eval_env.eval(agent, mode='evaluation')

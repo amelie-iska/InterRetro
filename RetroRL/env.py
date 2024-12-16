@@ -5,6 +5,7 @@ import logging
 
 import torch
 from tqdm import tqdm
+from tqdm import tqdm
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -33,26 +34,20 @@ class RetroEnv:
         self.tree_mdp = self.obs_node
         return self.obs
 
-    def step(self, a):
-        self.obs_node.action = a
-        try:
-            reactants = rdchiralRunText(a, self.obs)
-        except RuntimeError as e:
-            logging.info(f"rdchiralRunText error: {e}")
-            return None, 0, 1, None
-        
+    def step(self, reactants):
+        self.obs_node.action = None
+       
         if len(reactants) == 0:
             return None, 0, 1, None
-        else:
-            reactants = list(set(reactants[0].split('.')))
         
         for r in reactants:
-            r_node = AnyNode(id=r, parent=self.obs_node, action=None, inbb=int(r in self.building_blocks),
-                             value=-1)
-            if not r in self.building_blocks:
+            inbb = r in self.building_blocks
+            r_node = AnyNode(id=r, parent=self.obs_node, action=None, 
+                             inbb=int(inbb), value=-1)
+            if inbb == False:
                 self.tobevisited_nodes.append(r_node)
         
-        if self.tobevisited_nodes:
+        if len(self.tobevisited_nodes) > 0:
             self.obs = self.tobevisited_nodes[-1].id
             self.obs_node = self.tobevisited_nodes[-1]
             self.tobevisited_nodes.remove(self.tobevisited_nodes[-1])
@@ -66,28 +61,14 @@ class RetroEnv:
     def eval(self, agent, mode, critic=None, print_last_tree=True):
         eval_info = {}
         rewards = np.zeros((100, 1))
-        for mol_idx in range(100):
+        for mol_idx in tqdm(range(100)):
             obs = self.reset()
-            for t in range(50):
-                a = agent.get_action(obs)
-                
-                if not critic == None and mol_idx == 99:
-                    obs_arr = smiles2array(obs, agent.fp_dim)
-                    obs_arr = np.reshape(obs_arr,[-1, obs_arr.shape[0]])
-                    obs_arr = torch.tensor(obs_arr, dtype=torch.float32).to(device='cuda')
-                    
-                    rxn_idx = agent.one_step.rules2idx[a]
-                    rxn_arr = np.zeros(len(agent.one_step.idx2rules))
-                    rxn_arr[rxn_idx] = 1
-                    rxn_arr = torch.tensor(rxn_arr[np.newaxis], dtype=torch.float32).to(device='cuda')
-                    
-                    value = critic(obs_arr, rxn_arr).item()
-                    self.obs_node.value = value
-                 
-                next_obs, reward, done, info = self.step(a)
+            print(obs)
+            for t in range(20):
+                reactants = agent.get_reactants(obs)
+                next_obs, reward, done, info = self.step(reactants)
                 rewards[mol_idx] = reward
-                if done:
-                    break
+                if done: break
                 obs = next_obs
         eval_info['evaluation/' + mode + '_success_rate'] = rewards.mean()
         if print_last_tree and not (critic==None):

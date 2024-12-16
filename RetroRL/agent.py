@@ -33,7 +33,15 @@ class RetroRL:
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
         top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=9, rxn_class=False)
-        return top_k_results[0]['final_smi']
+        
+        reactants = None
+        for res in top_k_results:
+            if not res['final_smi'].startswith('final_smi_unmapped'):       
+                reactants = list(res['final_smi'].split('.'))
+                break
+        if reactants == None:
+            raise ValueError('All final SMILES are invalid.')
+        return reactants
 
     
     
