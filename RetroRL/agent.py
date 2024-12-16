@@ -9,6 +9,7 @@ from models import MLPModel, ActionRepresentation, ValueMLP, PriorMLP
 from retrorl_utils import smiles2array
 from Graph2Edits.models import Graph2Edits, BeamSearch
 
+
 class RetroRL:
     def __init__(self, args):
         self.args = args
@@ -28,11 +29,13 @@ class RetroRL:
                                      beam_size=10, use_rxn_class=False)
     
     def get_reactants(self, p_smi):
+        p_smi = self.canonicalize(p_smi)
         mol = Chem.MolFromSmiles(p_smi)
         for i, atom in enumerate(mol.GetAtoms(), start=1):  # Start numbering from 1
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
-        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=9, rxn_class=False)
+        # top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=9, rxn_class=False)
+        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=6, rxn_class=False)
         
         reactants = None
         for res in top_k_results:
@@ -42,6 +45,18 @@ class RetroRL:
         if reactants == None:
             raise ValueError('All final SMILES are invalid.')
         return reactants
+    
+    def canonicalize(self, smi):
+        try:
+            mol = Chem.MolFromSmiles(smi)
+        except:
+            print('no mol', flush=True)
+            return smi
+        if mol is None:
+            return smi
+        mol = Chem.RemoveHs(mol)
+        [a.ClearProp('molAtomMapNumber') for a in mol.GetAtoms()]
+        return Chem.MolToSmiles(mol)
 
     
     

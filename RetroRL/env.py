@@ -64,7 +64,7 @@ class RetroEnv:
         for mol_idx in tqdm(range(100)):
             obs = self.reset()
             print(obs)
-            for t in range(20):
+            for t in range(100):
                 reactants = agent.get_reactants(obs)
                 next_obs, reward, done, info = self.step(reactants)
                 rewards[mol_idx] = reward
