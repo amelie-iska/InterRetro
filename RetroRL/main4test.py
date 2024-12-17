@@ -82,9 +82,11 @@ for epoch in range(args.epochs):
                         desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
         mol = archive.pop()
         tree, failed_subtrees, succ_subtrees, info = eval_env.build_tree(agent, mol)
+            
         
         if len(failed_subtrees) > 0:
-            archive.update(failed_subtrees.id)
+            for subtree in failed_subtrees:
+                archive.update(subtree.id)
  
         if len(succ_subtrees) > 0:
             for subtree in succ_subtrees:
