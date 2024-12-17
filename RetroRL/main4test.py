@@ -15,6 +15,8 @@ from rdkit import Chem, RDLogger
 RDLogger.DisableLog('rdApp.*')
 from rdchiral.main import rdchiralRunText
 
+from replay_buffer import ReplayBuffer
+from trajectories import TrajectoryCreator
 from env import RetroEnv
 from alg import online_mcts
 from runners import SerialRunner, ParallelRunner
@@ -64,24 +66,40 @@ logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing d
 building_blocks = prepare_starting_molecules(args.building_blocks_path)
 logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
 
+
 env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
 eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
 agent = RetroRL(args)
-   
 
+buffer = ReplayBuffer(capacity=10000)
+traj_creator = TrajectoryCreator(agent)
 
 logging.info("Training starts ...")
+
+archive = set(eval_mols)
 for epoch in range(args.epochs):
     for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, 
                         desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+        mol = archive.pop()
+        tree, failed_subtrees, succ_subtrees, info = eval_env.build_tree(agent, mol)
+        
+        if len(failed_subtrees) > 0:
+            archive.update(failed_subtrees.id)
+ 
+        if len(succ_subtrees) > 0:
+            for subtree in succ_subtrees:
+               branches = traj_creator.extract_branches(subtree)
+               for branch in branches:
+                   buffer.add(obs=branch[0], next_obs=branch[2], reward=branch[3], done=branch[4])
+        
+        
 
-        logs = {}
 
-        print(X)
-        if mol_idx % args.evaluation_interval == 0:
-            eval_info1 = env.eval(agent, mode='training')
-            eval_info2 = eval_env.eval(agent, mode='evaluation')
-            logs.update(eval_info1 | eval_info2)
+print(X)
+if mol_idx % args.evaluation_interval == 0:
+    eval_info1 = env.eval(agent, mode='training')
+    eval_info2 = eval_env.eval(agent, mode='evaluation')
+    logs.update(eval_info1 | eval_info2)
 
 
 

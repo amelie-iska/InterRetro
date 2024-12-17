@@ -36,7 +36,7 @@ def get_args():
     parser.add_argument('--building_blocks_path', type=str, default='../dataset/origin_dict_canonical.csv')
     parser.add_argument('--state_path', type=str, default='../one_step_model/saved_rollout_state_1_2048.ckpt')
     parser.add_argument('--template_path', type=str, default='../one_step_model/template_rules_1.dat')
-    parser.add_argument('--graph2edits_model', type=str, default='../Graph2Edits/experiments/uspto_50k/without_rxn_class/27-06-2022--10-27-22/epoch_123.pt')
+    parser.add_argument('--graph2edits_model', type=str, default='../Graph2Edits/graph2edits_experiments/uspto_50k/without_rxn_class/27-06-2022--10-27-22/epoch_123.pt')
     
     args = parser.parse_args()
     
