@@ -29,7 +29,7 @@ class ReplayBuffer:
     def sample(self, batch_size):
         indices = random.sample(range(self.size), batch_size)
         return {
-            'obs': [self.buffer['next_obs'][i] for i in indices],
+            'obs': [self.buffer['obs'][i] for i in indices],
             'next_obs': [self.buffer['next_obs'][i] for i in indices],
             'rewards': [self.buffer['rewards'][i] for i in indices],
             'dones': [self.buffer['dones'][i] for i in indices]

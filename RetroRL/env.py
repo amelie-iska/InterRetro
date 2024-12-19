@@ -16,19 +16,14 @@ from retrorl_utils import smiles2array
 
 
 class RetroEnv:
-    def __init__(self, target_mols, blocking_blocks):
-        self.target_mols = target_mols
+    def __init__(self, blocking_blocks):
         self.building_blocks = blocking_blocks
 
-    def reset(self, mol=None):
+    def reset(self, mol):
         self.tree_mdp = None
         self.tobevisited_nodes = []
 
-        if mol == None:
-            self.obs = random.choice(self.target_mols)
-        else:
-            self.obs = mol
-            
+        self.obs = mol
         self.obs_node = AnyNode(id=self.obs, action=None, inbb=int(self.obs in self.building_blocks))
         self.tree_mdp = self.obs_node
         return self.obs
@@ -56,11 +51,11 @@ class RetroEnv:
             return None, 1, 1, None
     
     @torch.no_grad()
-    def eval(self, agent, mode):
+    def eval(self, agent, mol):
         eval_info = {}
         rewards = np.zeros((20, 1))
         for mol_idx in tqdm(range(20)):
-            obs = self.reset()
+            obs = self.reset(mol)
             for t in range(20):
                 reactants = agent.get_reactants(obs)
                 next_obs, reward, done, info = self.step(reactants)
@@ -68,10 +63,10 @@ class RetroEnv:
                 if done: 
                     break
                 obs = next_obs
-        eval_info['evaluation/' + mode + '_success_rate'] = rewards.mean()
+        eval_info['evaluation/success_rate'] = rewards.mean()
         return eval_info
     
-    def build_tree(self, agent, mol=None):
+    def build_tree(self, agent, mol):
         obs = self.reset(mol)
         for t in range(1, 16):
             reactants = agent.get_reactants(obs, sampling=True)

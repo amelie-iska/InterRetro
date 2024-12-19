@@ -67,29 +67,30 @@ building_blocks = prepare_starting_molecules(args.building_blocks_path)
 logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
 
 
-env = RetroEnv(target_mols=target_mols, blocking_blocks=building_blocks)
-eval_env = RetroEnv(target_mols=eval_mols, blocking_blocks=building_blocks)
+env = RetroEnv(blocking_blocks=building_blocks)
 agent = RetroRL(args)
 
 buffer = ReplayBuffer(capacity=10000)
 traj_creator = TrajectoryCreator(agent)
 
-logging.info("Training starts ...")
 
-archive = set(eval_mols)
+logging.info("Training starts ...")
+archive = set(target_mols)
 for epoch in range(args.epochs):
-    for mol_idx in tqdm(range(len(eval_mols)), mininterval=1.0, 
+    for mol_idx in tqdm(range(len(target_mols)), mininterval=1.0, 
                         desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
         mol = archive.pop()
-        tree, succ_subtrees, info = eval_env.build_tree(agent, mol)
+        tree, succ_subtrees, info = env.build_tree(agent, mol)
           
-        if not info['success']:
-            archive.add(tree.id)
-            
-        wandb.log({'unsolved molecules': len(archive)})    
+        if len(succ_subtrees) > 0:
+            for subtree in succ_subtrees:
+               branches = traj_creator.extract_branches(subtree)
+               for branch in branches:
+                   buffer.add(obs=branch[0], next_obs=branch[2], reward=branch[3], done=branch[4])
         
-        print(len(archive))
-        
+        if buffer.size > 10:
+            rxn_batch = buffer.sample(2)
+            agent.fit(rxn_batch)
         '''
         if len(failed_subtrees) > 0:
             for subtree in failed_subtrees:
