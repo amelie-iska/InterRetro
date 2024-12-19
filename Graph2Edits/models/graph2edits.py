@@ -136,9 +136,14 @@ class Graph2Edits(nn.Module):
         prev_atom_scope = atom_scope
 
         node_feats = atom_feats.clone()
-        bond_starts = index_select_ND(atom_feats, index=prod_tensors[-1][:, 0])
-        bond_ends = index_select_ND(atom_feats, index=prod_tensors[-1][:, 1])
-        bond_feats = torch.cat([bond_starts, bond_ends], dim=1)
+        
+        # The branch is modified by Mianchu
+        if prod_tensors[-1].size(1) == 0:
+            bond_feats = torch.zeros(atom_feats.shape[0], atom_feats.shape[1] * 2).to(device=self.device)
+        else:
+            bond_starts = index_select_ND(atom_feats, index=prod_tensors[-1][:, 0])
+            bond_ends = index_select_ND(atom_feats, index=prod_tensors[-1][:, 1])
+            bond_feats = torch.cat([bond_starts, bond_ends], dim=1)
 
         graph_vecs = torch.stack(
             [atom_feats[st: st + le].sum(dim=0) for st, le in atom_scope])

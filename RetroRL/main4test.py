@@ -78,22 +78,30 @@ logging.info("Training starts ...")
 
 archive = set(eval_mols)
 for epoch in range(args.epochs):
-    for mol_idx in tqdm(range(len(env.target_mols)), mininterval=1.0, 
+    for mol_idx in tqdm(range(len(eval_mols)), mininterval=1.0, 
                         desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
         mol = archive.pop()
-        tree, failed_subtrees, succ_subtrees, info = eval_env.build_tree(agent, mol)
+        tree, succ_subtrees, info = eval_env.build_tree(agent, mol)
+          
+        if not info['success']:
+            archive.add(tree.id)
             
+        wandb.log({'unsolved molecules': len(archive)})    
         
+        print(len(archive))
+        
+        '''
         if len(failed_subtrees) > 0:
             for subtree in failed_subtrees:
-                archive.update(subtree.id)
+                archive.add(subtree.id)
+                print(subtree.id)
  
         if len(succ_subtrees) > 0:
             for subtree in succ_subtrees:
                branches = traj_creator.extract_branches(subtree)
                for branch in branches:
                    buffer.add(obs=branch[0], next_obs=branch[2], reward=branch[3], done=branch[4])
-        
+        '''
         
 
 

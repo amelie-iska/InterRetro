@@ -74,20 +74,12 @@ class RetroEnv:
     def build_tree(self, agent, mol=None):
         obs = self.reset(mol)
         for t in range(1, 16):
-            reactants = agent.get_reactants(obs)
+            reactants = agent.get_reactants(obs, sampling=True)
             next_obs, reward, done, info = self.step(reactants)
             if done:
                 break
             obs = next_obs
             
-        # Largest failing subtrees: failing nodes whose parent is not failing
-        failed_subtrees = []
-        for node in PreOrderIter(self.tree_mdp):
-            if self.is_failed_subtree(node):
-                if node.is_root or not self.is_failed_subtree(node.parent):
-                    if node.inbb == False:
-                        failed_subtrees.append(node)
-    
         # Largest successful subtrees: successful nodes whose parent is not successful
         successful_subtrees = []
         for node in PreOrderIter(self.tree_mdp):
@@ -96,7 +88,7 @@ class RetroEnv:
                     if node.inbb == False:
                         successful_subtrees.append(node)
 
-        return self.tree_mdp, failed_subtrees, successful_subtrees, \
+        return self.tree_mdp, successful_subtrees, \
                 {'success': int(reward==1), 'model_calls': t}
     
     
