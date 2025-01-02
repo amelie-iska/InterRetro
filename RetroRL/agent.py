@@ -1,8 +1,10 @@
 import os
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 import numpy as np
 import random
+import copy
 
 from rdkit import Chem
 
@@ -10,10 +12,14 @@ from models import MLPModel, ActionRepresentation, ValueMLP, PriorMLP
 from retrorl_utils import smiles2array
 from Graph2Edits.models import Graph2Edits, BeamSearch
 from Graph2Edits.utils.generate_edits import generate_reaction_edits
+from Graph2Edits.utils.rxn_graphs import MolGraph, RxnGraph, Vocab
+from Graph2Edits.utils.reaction_actions import (AddGroupAction, AtomEditAction,
+                                                BondEditAction, Termination)
+from Graph2Edits.utils.mol_features import ATOM_FDIM, BOND_FDIM
 
 from rxnmapper import RXNMapper
 
-from typing import Any, List
+from typing import Any, List, Tuple
 import sys
 from collections import Counter
 import joblib
@@ -27,6 +33,8 @@ class RetroRL:
         self.updates = 0
         
         self.rxn_mapper = RXNMapper()
+        self.bond_vocab = Vocab(joblib.load(self.args.bond_vocab_file))
+        self.atom_vocab = Vocab(joblib.load(self.args.atom_vocab_file))
         
         # Load Graph2Edits
         print(args.graph2edits_model)
@@ -36,6 +44,7 @@ class RetroRL:
         self.graph2edits.load_state_dict(checkpoint['state'])
         self.graph2edits.to(args.device)
         self.graph2edits.eval()
+        self.graph2edits_optim = torch.optim.Adam(self.graph2edits.parameters(), lr=args.lr)
         
         # Load bream search
         self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=10,
@@ -48,29 +57,267 @@ class RetroRL:
         dones = rxn_batch['dones']
         
         # Automic atom mapping
-        print('obs', obs)
-        print('next_obs', next_obs)
         reactions = []
         for product, reactants in zip(obs, next_obs):
             reactant_string = '.'.join(reactants)
             reaction = f"{reactant_string}>>{product}"
             reactions.append(reaction)
-        print(reactions)
-        mapped_reactions = self.rxn_mapper.get_attention_guided_atom_maps(reactions)
-        print(mapped_reactions)
-        
+        mapped_reactions = self.rxn_mapper.get_attention_guided_atom_maps(reactions) 
         mapped_reactions = [rxn['mapped_rxn'] for rxn in mapped_reactions]
-        print('\nmapped_reactions', mapped_reactions)
         filter_rxns_data = self.preprocessing(rxns=mapped_reactions)
-        print('\nfilter_rxns_data', filter_rxns_data)
         
         
+        batch_graphs = []
+        for rxn_data in filter_rxns_data:
+            graph_seq = []
+            r, p = rxn_data.rxn_smi.split('>>')
+            r_mol = Chem.MolFromSmiles(r)
+            p_mol = Chem.MolFromSmiles(p)
+            Chem.Kekulize(p_mol)
+            
+            int_mol = p_mol
+            for i, edit in enumerate(rxn_data.edits):
+                if int_mol is None:
+                    print("Interim mol is None")
+                    break
+                if edit == 'Terminate':
+                    graph = RxnGraph(prod_mol=Chem.Mol(
+                        int_mol), edit_to_apply=edit, reac_mol=Chem.Mol(r_mol), rxn_class=None, use_rxn_class=False)
+                    graph_seq.append(graph)
+                    edit_exe = Termination(action_vocab='Terminate')
+                    try:
+                        pred_mol = edit_exe.apply(Chem.Mol(int_mol))
+                        final_smi = Chem.MolToSmiles(pred_mol)
+                    except Exception as e:
+                        final_smi = None
+                else:
+                    graph = RxnGraph(prod_mol=Chem.Mol(int_mol), edit_to_apply=edit,
+                                     edit_atom=rxn_data.edits_atom[i], reac_mol=Chem.Mol(r_mol), rxn_class=None, use_rxn_class=False)
+                    graph_seq.append(graph)
+                    int_mol = self.apply_edit_to_mol(
+                        Chem.Mol(int_mol), edit, rxn_data.edits_atom[i])
+            batch_graphs.append(graph_seq)
+            
+        batch_tensors = self.process_batch(batch_graphs)
+        
+        graph_seq_tensors, seq_labels, seq_mask = batch_tensors
+        seq_edit_scores = self.graph2edits(graph_seq_tensors)
+        max_seq_len, batch_size = seq_mask.size()
+        
+        seq_loss = []
+        train_loss = 0
+        train_acc = 0
+        loss_fn = nn.CrossEntropyLoss(reduction='none')
+        for idx in range(max_seq_len):
+            edit_labels_idx = self.graph2edits.to_device(seq_labels[idx])
+            loss_batch = [seq_mask[idx][i] * loss_fn(seq_edit_scores[idx][i].unsqueeze(0),
+                                                     torch.argmax(edit_labels_idx[i]).unsqueeze(0).long()).sum()
+                          for i in range(batch_size)]
+
+            loss = torch.stack(loss_batch, dim=0).mean()
+            seq_loss.append(loss)
+            
+        total_loss = torch.stack(seq_loss).mean()
+        accuracy = self.get_seq_edit_accuracy(seq_edit_scores, seq_labels, seq_mask)
+
+        train_loss += total_loss.item()
+        train_acc += accuracy
+
+        self.graph2edits_optim.zero_grad()
+        total_loss.backward()
+        nn.utils.clip_grad_norm_(self.graph2edits.parameters(), 10)
+        self.graph2edits_optim.step()
+
+        return {'graph2edits/training_loss': train_loss,
+                'graph2edits/training_accuracy': train_acc}
+            
+    
+    def get_seq_edit_accuracy(self, seq_edit_scores, seq_labels, seq_mask):
+        max_seq_len = seq_mask.shape[0]
+        batch_size = seq_mask.shape[1]
+        assert len(seq_edit_scores) == max_seq_len
+        assert len(seq_labels) == max_seq_len
+        assert len(seq_edit_scores[0]) == batch_size
+        lengths = seq_mask.sum(dim=0).flatten()
+    
+        def check_equals(x, y): return torch.argmax(x) == torch.argmax(y)
+    
+        all_acc = 0
+        for batch_id in range(batch_size):
+            step_acc = 0
+            seq_length = lengths[batch_id]
+            for idx in range(seq_length):
+                if check_equals(seq_edit_scores[idx][batch_id], seq_labels[idx][batch_id]):
+                    step_acc += 1
+    
+            if step_acc == seq_length:
+                all_acc += 1
+    
+        accuracy = all_acc / batch_size
+        return accuracy
+    
+    def process_batch(self, batch_graphs):
+        lengths = torch.tensor([len(graph_seq)
+                               for graph_seq in batch_graphs], dtype=torch.long)
+        max_length = max([len(graph_seq) for graph_seq in batch_graphs])
+    
+    
+        graph_seq_tensors = []
+        edit_seq_labels = []
+        seq_mask = []
+    
+        for idx in range(max_length):
+            graphs_idx = [copy.deepcopy(batch_graphs[i][min(idx, length-1)]).get_components(attrs=['prod_graph', 'edit_to_apply', 'edit_atom'])
+                          for i, length in enumerate(lengths)]
+            mask = (idx < lengths).long()
+            prod_graphs, edits, edit_atoms = list(zip(*graphs_idx))
+            assert all([isinstance(graph, MolGraph) for graph in prod_graphs])
+    
+            edit_labels = self.prepare_edit_labels(
+                prod_graphs, edits, edit_atoms, self.bond_vocab, self.atom_vocab)
+            current_graph_tensors = self.get_batch_graphs(
+                prod_graphs, use_rxn_class=None)
+    
+            graph_seq_tensors.append(current_graph_tensors)
+            edit_seq_labels.append(edit_labels)
+            seq_mask.append(mask)
+    
+        seq_mask = torch.stack(seq_mask).long()
+        assert seq_mask.shape[0] == max_length
+        assert seq_mask.shape[1] == len(batch_graphs)
+    
+        return graph_seq_tensors, edit_seq_labels, seq_mask
+    
+    def get_batch_graphs(self, graph_batch: List[MolGraph], use_rxn_class: bool = False) -> Tuple[torch.Tensor, List[Tuple[int]]]:
+        """
+        Featurization of a batch of molecules.
+        """
+        # Start n_atoms and n_bonds at 1 b/c zero padding
+        n_atoms = 1  # number of atoms (start at 1 b/c need index 0 as padding)
+        n_bonds = 1  # number of bonds (start at 1 b/c need index 0 as padding)
+        a_scope = []  # list of tuples indicating (start_atom_index, num_atoms) for each molecule
+        b_scope = []  # list of tuples indicating (start_bond_index, num_bonds) for each molecule
+    
+        # All start with zero padding so that indexing with zero padding returns zeros
+        atom_fdim = ATOM_FDIM
+        bond_fdim = atom_fdim + BOND_FDIM
+    
+        f_atoms = [[0] * atom_fdim]  # atom features
+        f_bonds = [[0] * bond_fdim]  # combined atom/bond features
+        a2b = [[]]  # mapping from atom index to incoming bond indices
+        b2a = [0]  # mapping from bond index to the index of the atom the bond is coming from
+        b2revb = [0]  # mapping from bond index to the index of the reverse bond
+        undirected_b2a = [[]] # mapping from the undirected bond index to the beginindex and endindex of the atoms
+        
+        for mol_graph in graph_batch:
+            f_atoms.extend(mol_graph.f_atoms)
+            f_bonds.extend(mol_graph.f_bonds)
+    
+            for a in range(mol_graph.n_atoms):
+                a2b.append([b + n_bonds for b in mol_graph.a2b[a]])
+    
+            for b in range(mol_graph.n_bonds):
+                b2a.append(n_atoms + mol_graph.b2a[b])
+                b2revb.append(n_bonds + mol_graph.b2revb[b])
+    
+            n_undirected_bonds = len(undirected_b2a)
+            for bond in mol_graph.mol.GetBonds():
+                undirected_b2a.append(sorted([bond.GetBeginAtomIdx() + n_atoms, bond.GetEndAtomIdx() + n_atoms]))
+    
+            a_scope.append((n_atoms, mol_graph.n_atoms))
+            b_scope.append((n_undirected_bonds, mol_graph.num_bonds))
+            n_atoms += mol_graph.n_atoms
+            n_bonds += mol_graph.n_bonds
+    
+        f_atoms = torch.FloatTensor(f_atoms)
+        f_bonds = torch.FloatTensor(f_bonds)
+        a2b = self.create_pad_tensor(a2b)
+        b2a = torch.LongTensor(b2a)
+        b2revb = torch.LongTensor(b2revb)
+        undirected_b2a = self.create_pad_tensor(undirected_b2a)
+    
+        graph_tensors = (f_atoms, f_bonds, a2b, b2a, b2revb, undirected_b2a)
+        scopes = (a_scope, b_scope)
+    
+        return graph_tensors, scopes
+    
+    def create_pad_tensor(self, alist):
+        max_len = max([len(a) for a in alist])
+        for a in alist:
+            pad_len = max_len - len(a)
+            a.extend([0] * pad_len)
+        return torch.tensor(alist, dtype=torch.long)
+    
+    def prepare_edit_labels(self, graph_batch: List[MolGraph], edits: List[Any], edit_atoms: List[Any], bond_vocab: List, atom_vocab: List) -> torch.tensor:
+        """ 
+        Prepare edit label including atom edits and bond edits.
+        """
+        bond_vocab_size = self.bond_vocab.size()
+        atom_vocab_size = self.atom_vocab.size()
+        edit_labels = []
+    
+        for prod_graph, edit, edit_atom in zip(graph_batch, edits, edit_atoms):
+            bond_label = np.zeros((prod_graph.num_bonds, bond_vocab_size))
+            atom_label = np.zeros((prod_graph.num_atoms, atom_vocab_size))
+            stop_label = np.zeros((1,))
+    
+            if edit == 'Terminate':
+                stop_label[0] = 1.0
+    
+            elif edit[0] == 'Change Atom' or edit[0] == 'Attaching LG':
+                a_map = edit_atom
+                a_idx = prod_graph.amap_to_idx[a_map]
+                edit_idx = self.atom_vocab.get_index(edit)
+                atom_label[a_idx][edit_idx] = 1
+    
+            else:
+                a1, a2 = edit_atom[0], edit_atom[1]
+                a_start, a_end = prod_graph.amap_to_idx[a1], prod_graph.amap_to_idx[a2]
+                b_idx = prod_graph.mol.GetBondBetweenAtoms(a_start, a_end).GetIdx()
+                edit_idx = self.bond_vocab.get_index(edit)
+                bond_label[b_idx][edit_idx] = 1
+    
+            edit_label = np.concatenate(
+                (bond_label.flatten(), atom_label.flatten(), stop_label.flatten()))
+            edit_label = torch.from_numpy(edit_label)
+            edit_labels.append(edit_label)
+    
+        return edit_labels
+    
+    def apply_edit_to_mol(self, mol: Chem.Mol, edit: Tuple, edit_atom: Any) -> Chem.Mol:
+        """ Apply edits to molecular graph """
+    
+        if edit[0] == 'Change Atom':
+            edit_exe = AtomEditAction(
+                edit_atom, *edit[1], action_vocab='Change Atom')
+            new_mol = edit_exe.apply(mol)
+    
+        if edit[0] == 'Delete Bond':
+            edit_exe = BondEditAction(
+                *edit_atom, *edit[1], action_vocab='Delete Bond')
+            new_mol = edit_exe.apply(mol)
+    
+        if edit[0] == 'Change Bond':
+            edit_exe = BondEditAction(
+                *edit_atom, *edit[1], action_vocab='Change Bond')
+            new_mol = edit_exe.apply(mol)
+    
+        if edit[0] == 'Add Bond':
+            edit_exe = BondEditAction(
+                *edit_atom, *edit[1], action_vocab='Add Bond')
+            new_mol = edit_exe.apply(mol)
+    
+        if edit[0] == 'Attaching LG':
+            edit_exe = AddGroupAction(
+                edit_atom, edit[1], action_vocab='Attaching LG')
+            new_mol = edit_exe.apply(mol)
+    
+        return new_mol
     
     def check_edits(self, edits: List):
         for edit in edits:
             if edit[0] == 'Add Bond':
                 return False
-    
         return True
     
     def preprocessing(self, rxns):
