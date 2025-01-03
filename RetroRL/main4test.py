@@ -84,7 +84,11 @@ for epoch in range(args.epochs):
                         desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
         
         mol = archive.pop()
-        tree, succ_subtrees, info = env.build_tree(agent, mol)
+        try:
+            tree, succ_subtrees, info = env.build_tree(agent, mol)
+        except Exception as e:
+            logging.warning(f"An unexpected error occurred when building tree: {e}")
+            continue
         
         if len(succ_subtrees) > 0:
             for subtree in succ_subtrees:
@@ -92,16 +96,16 @@ for epoch in range(args.epochs):
                for branch in branches:
                    buffer.add(obs=branch[0], actions=branch[1], next_obs=branch[2], reward=branch[3], done=branch[4])
         '''
-        if buffer.size > args.batch_size:
+        if buffer.size > 5 * args.batch_size:
             rxn_batch = buffer.sample(args.batch_size)
             fit_logs = agent.fit(rxn_batch)
             logs.update(fit_logs)
-            
+        '''  
         if mol_idx % args.evaluation_interval == 0:
             for mol in eval_mols[:20]:
                 eval_info = env.eval(agent, mol)
             logs.update(eval_info)
-        '''
+        
         
         logs.update({'utils/buffer_size': len(buffer)})
         if args.enable_wandb:

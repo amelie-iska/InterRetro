@@ -59,19 +59,11 @@ class RetroRL:
         
         batch_graphs = []
         for product_smi, all_edits, children_smi in zip(products_list, edits_list, reactants_list):
-            
-            product_smi = self.canonicalize(product_smi)
-            product_mol = Chem.MolFromSmiles(product_smi)
-            for i, atom in enumerate(product_mol.GetAtoms(), start=1):  # Start numbering from 1
-                atom.SetAtomMapNum(i)
-            product_smi = Chem.MolToSmiles(product_mol)
-            
             reactant_string = '.'.join(children_smi)
             graph_seq = self.build_graph_seq(product_smi, reactant_string, all_edits)
             if len(graph_seq) > 0:
                 batch_graphs.append(graph_seq)
-        
-        
+                
         if len(batch_graphs) == 0:
             return {}
         
