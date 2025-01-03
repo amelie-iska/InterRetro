@@ -6,6 +6,7 @@ import time
 import wandb
 from collections import deque
 import numpy as np
+import joblib
 
 import torch
 import torch.nn.functional as F
@@ -73,22 +74,24 @@ agent = RetroRL(args)
 buffer = ReplayBuffer(capacity=10000)
 traj_creator = TrajectoryCreator(agent)
 
+#buffer = joblib.load('buffer_epoch32.pkl')
 
 logging.info("Training starts ...")
 archive = set(target_mols)
 logs = {}
 for epoch in range(args.epochs):
-    for mol_idx in tqdm(range(len(target_mols)), mininterval=1.0, 
+    for mol_idx in tqdm(range(1, 100000), mininterval=1.0, 
                         desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+        
         mol = archive.pop()
         tree, succ_subtrees, info = env.build_tree(agent, mol)
-          
+        
         if len(succ_subtrees) > 0:
             for subtree in succ_subtrees:
                branches = traj_creator.extract_branches(subtree)
                for branch in branches:
-                   buffer.add(obs=branch[0], next_obs=branch[2], reward=branch[3], done=branch[4])
-        
+                   buffer.add(obs=branch[0], actions=branch[1], next_obs=branch[2], reward=branch[3], done=branch[4])
+        '''
         if buffer.size > args.batch_size:
             rxn_batch = buffer.sample(args.batch_size)
             fit_logs = agent.fit(rxn_batch)
@@ -98,7 +101,9 @@ for epoch in range(args.epochs):
             for mol in eval_mols[:20]:
                 eval_info = env.eval(agent, mol)
             logs.update(eval_info)
+        '''
         
+        logs.update({'utils/buffer_size': len(buffer)})
         if args.enable_wandb:
             wandb.log({**logs})
         logging.info(f"Training Info ep {epoch} mol {mol_idx}\n" + \

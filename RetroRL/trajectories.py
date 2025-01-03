@@ -1,4 +1,5 @@
 
+from rdkit import Chem
 import numpy as np
 
 from retrorl_utils import smiles2array
@@ -15,10 +16,14 @@ class TrajectoryCreator:
             if node.children:
                 reaction = node.action
                 children =  [c for c in node.children]
-                reactants = [c.id for c in node.children]
+                reactants = [c.mapping for c in node.children]
                 inbb_flags = [c.inbb for c in node.children]
                 dones = [int(len(c.children)==0) for c in node.children]
-                branch = [node.id, reaction, reactants, inbb_flags, dones]
+                mol = Chem.MolFromSmiles(node.id)
+                for i, atom in enumerate(mol.GetAtoms(), start=1):
+                    atom.SetAtomMapNum(i)
+                mapped_smi = Chem.MolToSmiles(mol)
+                branch = [mapped_smi, reaction, reactants, inbb_flags, dones]
 
                 branches.append(branch)
                 for child in children:

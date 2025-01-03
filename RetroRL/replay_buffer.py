@@ -7,6 +7,7 @@ class ReplayBuffer:
         self.capacity = capacity
         self.buffer = {
             'obs': [[] for _ in range(int(capacity))],
+            'actions': [[] for _ in range(int(capacity))],
             'next_obs': [[] for _ in range(int(capacity))],
             'rewards': [[] for _ in range(int(capacity))],
             'dones': [[] for _ in range(int(capacity))],
@@ -14,9 +15,10 @@ class ReplayBuffer:
         self.size = 0
         self.pos = 0
 
-    def add(self, obs, next_obs, reward, done):
+    def add(self, obs, actions, next_obs, reward, done):
         idx = int(self.pos % self.capacity)
         self.buffer['obs'][idx] = obs
+        self.buffer['actions'][idx] = actions
         self.buffer['next_obs'][idx] = next_obs
         self.buffer['rewards'][idx] = reward
         self.buffer['dones'][idx] = done
@@ -30,6 +32,7 @@ class ReplayBuffer:
         indices = random.sample(range(self.size), batch_size)
         return {
             'obs': [self.buffer['obs'][i] for i in indices],
+            'actions': [self.buffer['actions'][i] for i in indices],
             'next_obs': [self.buffer['next_obs'][i] for i in indices],
             'rewards': [self.buffer['rewards'][i] for i in indices],
             'dones': [self.buffer['dones'][i] for i in indices]

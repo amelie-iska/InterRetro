@@ -196,8 +196,7 @@ class BeamSearch:
                             edit_exe = Termination(action_vocab='Terminate')
                             path['rxn_actions'].append(edit_exe)
                             pred_mol = edit_exe.apply(int_mol)
-                            [a.ClearProp('molAtomMapNumber')
-                             for a in pred_mol.GetAtoms()]
+                            #[a.ClearProp('molAtomMapNumber') for a in pred_mol.GetAtoms()]
                             pred_mol = Chem.MolFromSmiles(
                                 Chem.MolToSmiles(pred_mol))
                             final_smi = Chem.MolToSmiles(pred_mol)

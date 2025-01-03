@@ -51,86 +51,123 @@ class RetroRL:
                                      beam_size=10, use_rxn_class=False)
     
     def fit(self, rxn_batch):
-        obs = rxn_batch['obs']
-        next_obs = rxn_batch['next_obs']
-        rewards = rxn_batch['rewards']
-        dones = rxn_batch['dones']
         
-        # Automic atom mapping
-        reactions = []
-        for product, reactants in zip(obs, next_obs):
-            reactant_string = '.'.join(reactants)
-            reaction = f"{reactant_string}>>{product}"
-            reactions.append(reaction)
-        mapped_reactions = self.rxn_mapper.get_attention_guided_atom_maps(reactions) 
-        mapped_reactions = [rxn['mapped_rxn'] for rxn in mapped_reactions]
-        filter_rxns_data = self.preprocessing(rxns=mapped_reactions)
+        products_list    = rxn_batch['obs']     # each is a product SMILES
+        edits_list       = rxn_batch['actions'] # each is a list of (action, atomlist) pairs
+        reactants_list   = rxn_batch['next_obs']
         
         
         batch_graphs = []
-        for rxn_data in filter_rxns_data:
-            graph_seq = []
-            r, p = rxn_data.rxn_smi.split('>>')
-            r_mol = Chem.MolFromSmiles(r)
-            p_mol = Chem.MolFromSmiles(p)
-            Chem.Kekulize(p_mol)
+        for product_smi, all_edits, children_smi in zip(products_list, edits_list, reactants_list):
             
-            int_mol = p_mol
-            for i, edit in enumerate(rxn_data.edits):
-                if int_mol is None:
-                    print("Interim mol is None")
-                    break
-                if edit == 'Terminate':
-                    graph = RxnGraph(prod_mol=Chem.Mol(
-                        int_mol), edit_to_apply=edit, reac_mol=Chem.Mol(r_mol), rxn_class=None, use_rxn_class=False)
-                    graph_seq.append(graph)
-                    edit_exe = Termination(action_vocab='Terminate')
-                    try:
-                        pred_mol = edit_exe.apply(Chem.Mol(int_mol))
-                        final_smi = Chem.MolToSmiles(pred_mol)
-                    except Exception as e:
-                        final_smi = None
-                else:
-                    graph = RxnGraph(prod_mol=Chem.Mol(int_mol), edit_to_apply=edit,
-                                     edit_atom=rxn_data.edits_atom[i], reac_mol=Chem.Mol(r_mol), rxn_class=None, use_rxn_class=False)
-                    graph_seq.append(graph)
-                    int_mol = self.apply_edit_to_mol(
-                        Chem.Mol(int_mol), edit, rxn_data.edits_atom[i])
-            batch_graphs.append(graph_seq)
+            product_smi = self.canonicalize(product_smi)
+            product_mol = Chem.MolFromSmiles(product_smi)
+            for i, atom in enumerate(product_mol.GetAtoms(), start=1):  # Start numbering from 1
+                atom.SetAtomMapNum(i)
+            product_smi = Chem.MolToSmiles(product_mol)
             
-        batch_tensors = self.process_batch(batch_graphs)
+            reactant_string = '.'.join(children_smi)
+            graph_seq = self.build_graph_seq(product_smi, reactant_string, all_edits)
+            if len(graph_seq) > 0:
+                batch_graphs.append(graph_seq)
         
-        graph_seq_tensors, seq_labels, seq_mask = batch_tensors
+        
+        if len(batch_graphs) == 0:
+            return {}
+        
+        graph_seq_tensors, seq_labels, seq_mask = self.process_batch(batch_graphs)
+        
         seq_edit_scores = self.graph2edits(graph_seq_tensors)
         max_seq_len, batch_size = seq_mask.size()
-        
-        seq_loss = []
-        train_loss = 0
-        train_acc = 0
+    
         loss_fn = nn.CrossEntropyLoss(reduction='none')
-        for idx in range(max_seq_len):
-            edit_labels_idx = self.graph2edits.to_device(seq_labels[idx])
-            loss_batch = [seq_mask[idx][i] * loss_fn(seq_edit_scores[idx][i].unsqueeze(0),
-                                                     torch.argmax(edit_labels_idx[i]).unsqueeze(0).long()).sum()
-                          for i in range(batch_size)]
-
-            loss = torch.stack(loss_batch, dim=0).mean()
-            seq_loss.append(loss)
-            
+        seq_loss = []
+    
+        for step_idx in range(max_seq_len):
+            target_labels = self.graph2edits.to_device(seq_labels[step_idx])
+            # Sum the cross-entropy over the batch, but only for active steps
+            loss_batch = []
+            for i in range(batch_size):
+                if seq_mask[step_idx][i] == 1:  # valid step
+                    pred_logits  = seq_edit_scores[step_idx][i].unsqueeze(0)
+                    gold_label   = torch.argmax(target_labels[i]).unsqueeze(0).long()
+                    loss_batch.append(loss_fn(pred_logits, gold_label).sum())
+            if len(loss_batch) > 0:
+                seq_loss.append(torch.stack(loss_batch).mean())
+    
+        if len(seq_loss) == 0:
+            return {}
+    
         total_loss = torch.stack(seq_loss).mean()
+    
         accuracy = self.get_seq_edit_accuracy(seq_edit_scores, seq_labels, seq_mask)
-
-        train_loss += total_loss.item()
-        train_acc += accuracy
-
+    
         self.graph2edits_optim.zero_grad()
         total_loss.backward()
         nn.utils.clip_grad_norm_(self.graph2edits.parameters(), 10)
         self.graph2edits_optim.step()
+    
+        logs = {
+           'graph2edits/training_loss': total_loss.item(),
+           'graph2edits/training_accuracy': accuracy
+        }
+        return logs
+        
+        
+        
+        
+    def build_graph_seq(self, product_smi, reactants_smi, edit_seq):
+        """
+        product_smi:    e.g. 'CCC(=O)N'
+        reactants_smi:  e.g. 'CC.CN' or 'CC.O' or single 'CC'
+        edit_seq:       a list of ((actionType, actionParams), [atomMap(s)]) steps.
+                        e.g. [ (('Delete Bond',(None,None)), [1,2]),
+                               (('Change Atom',(2,0)), [3]),
+                               ('Terminate', None) ]
+        Returns: a list of RxnGraph objects, each describing one step in the transformation.
+        """
+        try:
+            r_mol = Chem.MolFromSmiles(reactants_smi)
+            p_mol = Chem.MolFromSmiles(product_smi)
+            Chem.Kekulize(p_mol)
+        except:
+            return []  # can't parse?
+    
+        graph_seq = []
+        int_mol = p_mol
+        for (edit_action, edit_atoms) in edit_seq:
+            # Create the RxnGraph for this step
+            rxn_graph = RxnGraph(
+                prod_mol=Chem.Mol(int_mol),
+                edit_to_apply=edit_action,
+                edit_atom=edit_atoms,
+                reac_mol=Chem.Mol(r_mol),
+                rxn_class=None, 
+                use_rxn_class=False
+            )
+            graph_seq.append(rxn_graph)
+    
+            # If not 'Terminate', apply the edit to int_mol
+            if edit_action == 'Terminate':
+                # after Termination, we just break or let it continue with a None check
+                pass
+            else:
+                int_mol = self.apply_edit_to_mol(
+                    Chem.Mol(int_mol), edit_action, edit_atoms
+                )
+                if int_mol is None:
+                    print("Warning: applying edit resulted in None molecule. Stopping.")
+                    break
+    
+        return graph_seq
 
-        return {'graph2edits/training_loss': train_loss,
-                'graph2edits/training_accuracy': train_acc}
-            
+        
+        
+        
+        
+        
+        
+       
     
     def get_seq_edit_accuracy(self, seq_edit_scores, seq_labels, seq_mask):
         max_seq_len = seq_mask.shape[0]
@@ -399,33 +436,35 @@ class RetroRL:
 
         return filter_rxns_data
     
+    
     def get_reactants(self, p_smi, sampling=False):
         p_smi = self.canonicalize(p_smi)
         mol = Chem.MolFromSmiles(p_smi)
-        for i, atom in enumerate(mol.GetAtoms(), start=1):  # Start numbering from 1
+        for i, atom in enumerate(mol.GetAtoms(), start=1):
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
-        # top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=9, rxn_class=False)
         top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=9, rxn_class=False)
+        all_reactants = []
+        all_edits = []
+        for res in top_k_results:
+            if not res['final_smi'].startswith('final_smi_unmapped'):
+                reactant_list = res['final_smi'].split('.')  # e.g. "CC.O" -> ['CC','O']
+                all_reactants.append(reactant_list)
+                
+                edit_seq_with_params = []
+                for action, atom_or_atoms in zip(res['edits'], res['edits_atom']):
+                    edit_seq_with_params.append((action, atom_or_atoms))
+                all_edits.append(edit_seq_with_params)
         
+        if len(all_reactants) == 0:
+            raise ValueError("All final SMILES are invalid.")
+        
+        # If sampling == True, pick one random route
         if sampling:
-            all_reactants = []
-            for res in top_k_results:
-                if not res['final_smi'].startswith('final_smi_unmapped'):       
-                    reactants = list(res['final_smi'].split('.'))
-                    all_reactants.append(reactants)
-            if len(all_reactants) == 0:
-                raise ValueError('All final SMILES are invalid.')
-            return random.sample(all_reactants, 1)[0]     
+            idx = random.choice(range(len(all_reactants)))
+            return all_reactants[idx], all_edits[idx]
         else:
-            reactants = None
-            for res in top_k_results:
-                if not res['final_smi'].startswith('final_smi_unmapped'):       
-                    reactants = list(res['final_smi'].split('.'))
-                    break
-            if reactants == None:
-                raise ValueError('All final SMILES are invalid.')
-            return reactants
+            return all_reactants[0], all_edits[0]
     
     def canonicalize(self, smi):
         try:

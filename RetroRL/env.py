@@ -24,19 +24,25 @@ class RetroEnv:
         self.tobevisited_nodes = []
 
         self.obs = mol
-        self.obs_node = AnyNode(id=self.obs, action=None, inbb=int(self.obs in self.building_blocks))
+        obs_mol = Chem.MolFromSmiles(self.obs)
+        for i, atom in enumerate(obs_mol.GetAtoms(), start=1):
+            atom.SetAtomMapNum(i)
+        mapped_smi = Chem.MolToSmiles(obs_mol)
+        self.obs_node = AnyNode(id=self.obs, action=None, inbb=int(self.obs in self.building_blocks),
+                                mapping=mapped_smi)
         self.tree_mdp = self.obs_node
         return self.obs
 
-    def step(self, reactants):
-        self.obs_node.action = None
-       
+    def step(self, reactants, edits):
         if len(reactants) == 0:
             return None, 0, 1, None
         
+        self.obs_node.action = edits
         for r in reactants:
-            inbb = r in self.building_blocks
-            r_node = AnyNode(id=r, parent=self.obs_node, action=None, inbb=int(inbb))
+            unmapped_r = self.canonicalize(r)
+            inbb = unmapped_r in self.building_blocks
+            r_node = AnyNode(id=unmapped_r, parent=self.obs_node, action=None, inbb=int(inbb),
+                             mapping=r)
             if inbb == False:
                 self.tobevisited_nodes.append(r_node)
         
@@ -50,6 +56,18 @@ class RetroEnv:
             self.obs_node = None
             return None, 1, 1, None
     
+    def canonicalize(self, smi):
+        try:
+            mol = Chem.MolFromSmiles(smi)
+        except:
+            print('no mol', flush=True)
+            return smi
+        if mol is None:
+            return smi
+        mol = Chem.RemoveHs(mol)
+        [a.ClearProp('molAtomMapNumber') for a in mol.GetAtoms()]
+        return Chem.MolToSmiles(mol)
+    
     @torch.no_grad()
     def eval(self, agent, mol):
         eval_info = {}
@@ -57,8 +75,8 @@ class RetroEnv:
         for mol_idx in tqdm(range(20)):
             obs = self.reset(mol)
             for t in range(20):
-                reactants = agent.get_reactants(obs)
-                next_obs, reward, done, info = self.step(reactants)
+                reactants, edits = agent.get_reactants(obs, sampling=False)
+                next_obs, reward, done, info = self.step(reactants, edits)
                 rewards[mol_idx] = reward
                 if done: 
                     break
@@ -69,8 +87,8 @@ class RetroEnv:
     def build_tree(self, agent, mol):
         obs = self.reset(mol)
         for t in range(1, 16):
-            reactants = agent.get_reactants(obs, sampling=True)
-            next_obs, reward, done, info = self.step(reactants)
+            reactants, edits = agent.get_reactants(obs, sampling=True)
+            next_obs, reward, done, info = self.step(reactants, edits)
             if done:
                 break
             obs = next_obs
