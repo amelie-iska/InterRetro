@@ -72,7 +72,7 @@ class RetroEnv:
     def eval(self, agent, mols):
         eval_info = {}
         rewards = np.zeros((len(mols), 1))
-        for mol_idx in tqdm(range(20)):
+        for mol_idx in tqdm(range(len(mols))):
             obs = self.reset(mols[mol_idx])
             for t in range(15):
                 reactants, edits = agent.get_reactants(obs, sampling=False)

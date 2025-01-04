@@ -81,7 +81,7 @@ archive = set(eval_mols)
 for epoch in range(args.epochs):
     
     logs = {}
-    eval_info = env.eval(agent, eval_mols[:20])
+    eval_info = env.eval(agent, eval_mols)
     logs.update(eval_info)
     
     for mol_idx in tqdm(range(100), mininterval=1.0, 
