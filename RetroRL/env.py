@@ -69,12 +69,12 @@ class RetroEnv:
         return Chem.MolToSmiles(mol)
     
     @torch.no_grad()
-    def eval(self, agent, mol):
+    def eval(self, agent, mols):
         eval_info = {}
-        rewards = np.zeros((20, 1))
+        rewards = np.zeros((len(mols), 1))
         for mol_idx in tqdm(range(20)):
-            obs = self.reset(mol)
-            for t in range(20):
+            obs = self.reset(mols[mol_idx])
+            for t in range(15):
                 reactants, edits = agent.get_reactants(obs, sampling=False)
                 next_obs, reward, done, info = self.step(reactants, edits)
                 rewards[mol_idx] = reward

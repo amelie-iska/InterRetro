@@ -436,20 +436,22 @@ class RetroRL:
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
         top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=9, rxn_class=False)
+        
         all_reactants = []
         all_edits = []
         for res in top_k_results:
             if not res['final_smi'].startswith('final_smi_unmapped'):
-                reactant_list = res['final_smi'].split('.')  # e.g. "CC.O" -> ['CC','O']
+                reactant_list = res['final_smi'].split('.')
                 all_reactants.append(reactant_list)
                 
                 edit_seq_with_params = []
                 for action, atom_or_atoms in zip(res['edits'], res['edits_atom']):
                     edit_seq_with_params.append((action, atom_or_atoms))
+                edit_seq_with_params.append(('Terminate', None))
                 all_edits.append(edit_seq_with_params)
         
         if len(all_reactants) == 0:
-            raise ValueError("All final SMILES are invalid.")
+            raise ValueError(f"Final SMILES for {p_smi} are unmapped.")
         
         # If sampling == True, pick one random route
         if sampling:

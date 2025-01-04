@@ -77,17 +77,21 @@ traj_creator = TrajectoryCreator(agent)
 #buffer = joblib.load('buffer_epoch32.pkl')
 
 logging.info("Training starts ...")
-archive = set(target_mols)
-logs = {}
+archive = set(eval_mols)
 for epoch in range(args.epochs):
-    for mol_idx in tqdm(range(1, 100000), mininterval=1.0, 
+    
+    logs = {}
+    eval_info = env.eval(agent, eval_mols[:20])
+    logs.update(eval_info)
+    
+    for mol_idx in tqdm(range(100), mininterval=1.0, 
                         desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
         
         mol = archive.pop()
         try:
             tree, succ_subtrees, info = env.build_tree(agent, mol)
         except Exception as e:
-            logging.warning(f"An unexpected error occurred when building tree: {e}")
+            logging.log(f'{e}')
             continue
         
         if len(succ_subtrees) > 0:
@@ -95,19 +99,19 @@ for epoch in range(args.epochs):
                branches = traj_creator.extract_branches(subtree)
                for branch in branches:
                    buffer.add(obs=branch[0], actions=branch[1], next_obs=branch[2], reward=branch[3], done=branch[4])
-        '''
-        if buffer.size > 5 * args.batch_size:
+        
+        if not info['success']:
+            archive.add(tree.id)
+        
+        if buffer.size > args.batch_size:
             rxn_batch = buffer.sample(args.batch_size)
             fit_logs = agent.fit(rxn_batch)
             logs.update(fit_logs)
-        '''  
-        if mol_idx % args.evaluation_interval == 0:
-            for mol in eval_mols[:20]:
-                eval_info = env.eval(agent, mol)
-            logs.update(eval_info)
         
         
-        logs.update({'utils/buffer_size': len(buffer)})
+        
+        logs.update({'utils/buffer_size': len(buffer),
+                     'utils/archive_size': len(archive)})
         if args.enable_wandb:
             wandb.log({**logs})
         logging.info(f"Training Info ep {epoch} mol {mol_idx}\n" + \
