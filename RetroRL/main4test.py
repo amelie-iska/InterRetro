@@ -91,7 +91,7 @@ for epoch in range(args.epochs):
         try:
             tree, succ_subtrees, info = env.build_tree(agent, mol)
         except Exception as e:
-            logging.log(f'{e}')
+            logging.info(f'{e}')
             continue
         
         if len(succ_subtrees) > 0:

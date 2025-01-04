@@ -75,7 +75,11 @@ class RetroEnv:
         for mol_idx in tqdm(range(len(mols))):
             obs = self.reset(mols[mol_idx])
             for t in range(15):
-                reactants, edits = agent.get_reactants(obs, sampling=False)
+                try:
+                    reactants, edits = agent.get_reactants(obs, sampling=False)
+                except Exception as e:
+                    logging.info(f'{e}')
+                    break
                 next_obs, reward, done, info = self.step(reactants, edits)
                 rewards[mol_idx] = reward
                 if done: 
