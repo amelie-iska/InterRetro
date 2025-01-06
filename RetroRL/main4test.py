@@ -71,45 +71,39 @@ logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
 env = RetroEnv(blocking_blocks=building_blocks)
 agent = RetroRL(args)
 
-buffer = ReplayBuffer(capacity=10000)
+buffer = ReplayBuffer(capacity=10000, agent=agent)
 traj_creator = TrajectoryCreator(agent)
 
-#buffer = joblib.load('buffer_epoch32.pkl')
-
 logging.info("Training starts ...")
-archive = set(eval_mols)
 for epoch in range(args.epochs):
-    
-    logs = {}
-    eval_info = env.eval(agent, eval_mols)
-    logs.update(eval_info)
-    
-    for mol_idx in tqdm(range(100), mininterval=1.0, 
-                        desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
-        
+    archive = set(eval_mols)
+    for mol_idx in tqdm(range(1000), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+        logs = {}
         mol = archive.pop()
         try:
             tree, succ_subtrees, info = env.build_tree(agent, mol)
         except Exception as e:
-            logging.info(f'{e}')
+            logging.warning(f'{e}')
             continue
         
         if len(succ_subtrees) > 0:
             for subtree in succ_subtrees:
                branches = traj_creator.extract_branches(subtree)
                for branch in branches:
-                   buffer.add(obs=branch[0], actions=branch[1], next_obs=branch[2], reward=branch[3], done=branch[4])
+                   buffer.add(**branch)
         
         if not info['success']:
             archive.add(tree.id)
         
-        if buffer.size > args.batch_size:
+        if buffer.size > 5 * args.batch_size:
             rxn_batch = buffer.sample(args.batch_size)
             fit_logs = agent.fit(rxn_batch)
             logs.update(fit_logs)
-        
-        
-        
+        '''
+        if mol_idx % args.evaluation_interval == 0:
+            eval_info = env.eval(agent, eval_mols)
+            logs.update(eval_info)
+        '''
         logs.update({'utils/buffer_size': len(buffer),
                      'utils/archive_size': len(archive)})
         if args.enable_wandb:
@@ -117,6 +111,13 @@ for epoch in range(args.epochs):
         logging.info(f"Training Info ep {epoch} mol {mol_idx}\n" + \
                      "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
 
+    logs = {}
+    for _ in tqdm(range(5000), mininterval=1.0, desc=f"After-epoch{epoch} training", dynamic_ncols=True, leave=True):
+        rxn_batch = buffer.sample(args.batch_size)
+        fit_logs = agent.fit(rxn_batch)
+        logs.update(fit_logs)
+    logging.info(f"After-epoch Training Info ep {epoch}\n" + \
+                 "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
 
 
 

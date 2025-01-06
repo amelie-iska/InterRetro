@@ -23,7 +23,11 @@ class TrajectoryCreator:
                 for i, atom in enumerate(mol.GetAtoms(), start=1):
                     atom.SetAtomMapNum(i)
                 mapped_smi = Chem.MolToSmiles(mol)
-                branch = [mapped_smi, reaction, reactants, inbb_flags, dones]
+                branch = {'obs': mapped_smi, 
+                          'actions': reaction, 
+                          'next_obs': reactants, 
+                          'rewards': inbb_flags, 
+                          'dones': dones}
 
                 branches.append(branch)
                 for child in children:

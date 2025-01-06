@@ -12,15 +12,15 @@ def get_args():
     parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
     parser.add_argument('--minirun',  type=int, choices=[0, 1], default=1)
     
-    parser.add_argument('--evaluation_interval', type=int, default=1)
+    parser.add_argument('--evaluation_interval', type=int, default=200)
     parser.add_argument('--log_interval', type=int, default=100)
-    parser.add_argument('--epochs', type=int, default=10)
+    parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--runner', type=str, default='serial')
     
     # One-step model
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--realistic_filter', type=int, choices=[0, 1], default=1)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--minibatch_size', type=int, default=128)
     parser.add_argument('--fp_dim', type=int, default=2048)
     

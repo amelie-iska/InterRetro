@@ -51,22 +51,7 @@ class RetroRL:
                                      beam_size=10, use_rxn_class=False)
     
     def fit(self, rxn_batch):
-        
-        products_list    = rxn_batch['obs']     # each is a product SMILES
-        edits_list       = rxn_batch['actions'] # each is a list of (action, atomlist) pairs
-        reactants_list   = rxn_batch['next_obs']
-        
-        
-        batch_graphs = []
-        for product_smi, all_edits, children_smi in zip(products_list, edits_list, reactants_list):
-            reactant_string = '.'.join(children_smi)
-            graph_seq = self.build_graph_seq(product_smi, reactant_string, all_edits)
-            if len(graph_seq) > 0:
-                batch_graphs.append(graph_seq)
-                
-        if len(batch_graphs) == 0:
-            return {}
-        
+        batch_graphs = rxn_batch['graphs']
         graph_seq_tensors, seq_labels, seq_mask = self.process_batch(batch_graphs)
         
         seq_edit_scores = self.graph2edits(graph_seq_tensors)
@@ -99,13 +84,8 @@ class RetroRL:
         nn.utils.clip_grad_norm_(self.graph2edits.parameters(), 10)
         self.graph2edits_optim.step()
     
-        logs = {
-           'graph2edits/training_loss': total_loss.item(),
-           'graph2edits/training_accuracy': accuracy
-        }
-        return logs
-        
-        
+        return {'graph2edits/training_loss': total_loss.item(),
+                'graph2edits/training_accuracy': accuracy}
         
         
     def build_graph_seq(self, product_smi, reactants_smi, edit_seq):
