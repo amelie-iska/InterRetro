@@ -59,7 +59,6 @@ class RetroRL:
     
         loss_fn = nn.CrossEntropyLoss(reduction='none')
         seq_loss = []
-    
         for step_idx in range(max_seq_len):
             target_labels = self.graph2edits.to_device(seq_labels[step_idx])
             # Sum the cross-entropy over the batch, but only for active steps
@@ -77,12 +76,12 @@ class RetroRL:
     
         total_loss = torch.stack(seq_loss).mean()
     
-        accuracy = self.get_seq_edit_accuracy(seq_edit_scores, seq_labels, seq_mask)
-    
         self.graph2edits_optim.zero_grad()
         total_loss.backward()
         nn.utils.clip_grad_norm_(self.graph2edits.parameters(), 10)
         self.graph2edits_optim.step()
+    
+        accuracy = self.get_seq_edit_accuracy(seq_edit_scores, seq_labels, seq_mask)
     
         return {'graph2edits/training_loss': total_loss.item(),
                 'graph2edits/training_accuracy': accuracy}

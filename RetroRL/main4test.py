@@ -77,7 +77,7 @@ traj_creator = TrajectoryCreator(agent)
 logging.info("Training starts ...")
 for epoch in range(args.epochs):
     archive = set(eval_mols)
-    for mol_idx in tqdm(range(1000), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+    for mol_idx in tqdm(range(500), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
         logs = {}
         mol = archive.pop()
         try:
@@ -99,11 +99,11 @@ for epoch in range(args.epochs):
             rxn_batch = buffer.sample(args.batch_size)
             fit_logs = agent.fit(rxn_batch)
             logs.update(fit_logs)
-        '''
+        
         if mol_idx % args.evaluation_interval == 0:
             eval_info = env.eval(agent, eval_mols)
             logs.update(eval_info)
-        '''
+        
         logs.update({'utils/buffer_size': len(buffer),
                      'utils/archive_size': len(archive)})
         if args.enable_wandb:
@@ -111,8 +111,11 @@ for epoch in range(args.epochs):
         logging.info(f"Training Info ep {epoch} mol {mol_idx}\n" + \
                      "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
 
+    models = [agent, buffer]
+    joblib.dump(models, f'{exp_folder}/models_epoch{epoch}.pkl')
+    
     logs = {}
-    for _ in tqdm(range(5000), mininterval=1.0, desc=f"After-epoch{epoch} training", dynamic_ncols=True, leave=True):
+    for _ in tqdm(range(2000), mininterval=1.0, desc=f"After-epoch{epoch} training", dynamic_ncols=True, leave=True):
         rxn_batch = buffer.sample(args.batch_size)
         fit_logs = agent.fit(rxn_batch)
         logs.update(fit_logs)
@@ -120,7 +123,7 @@ for epoch in range(args.epochs):
                  "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
 
 
-
+    
 
 
 
