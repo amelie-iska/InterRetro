@@ -451,5 +451,5 @@ class RetroRL:
         [a.ClearProp('molAtomMapNumber') for a in mol.GetAtoms()]
         return Chem.MolToSmiles(mol)
 
-    
-    
+    def load_state_dict(self, state_dict):
+        self.graph2edits.load_state_dict(state_dict)

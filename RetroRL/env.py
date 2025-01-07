@@ -68,30 +68,13 @@ class RetroEnv:
         [a.ClearProp('molAtomMapNumber') for a in mol.GetAtoms()]
         return Chem.MolToSmiles(mol)
     
-    @torch.no_grad()
-    def eval(self, agent, mols):
-        eval_info = {}
-        rewards = np.zeros((len(mols), 1))
-        for mol_idx in tqdm(range(len(mols))):
-            obs = self.reset(mols[mol_idx])
-            for t in range(15):
-                try:
-                    reactants, edits = agent.get_reactants(obs, sampling=False)
-                except Exception as e:
-                    logging.info(f'{e}')
-                    break
-                next_obs, reward, done, info = self.step(reactants, edits)
-                rewards[mol_idx] = reward
-                if done: 
-                    break
-                obs = next_obs
-        eval_info['evaluation/success_rate'] = rewards.mean()
-        return eval_info
-    
-    def build_tree(self, agent, mol):
+    def build_tree(self, agent, mol, test=False):
         obs = self.reset(mol)
         for t in range(1, 16):
-            reactants, edits = agent.get_reactants(obs, sampling=True)
+            if test:
+                reactants, edits = agent.get_reactants(obs, sampling=False)
+            else:
+                reactants, edits = agent.get_reactants(obs, sampling=True)
             next_obs, reward, done, info = self.step(reactants, edits)
             if done:
                 break

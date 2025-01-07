@@ -4,8 +4,7 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--n_gpus', type=int, default=1)
-    parser.add_argument('--n_processes', type=int, default=1)
+    parser.add_argument('--n_processes', type=int, default=8)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
@@ -19,7 +18,8 @@ def get_args():
     
     # One-step model
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--training_batch_size', type=int, default=64)
+    parser.add_argument('--explore_batch_size', type=int, default=32)
     
     parser.add_argument('--training_routes', type=str, default='../dataset/routes_train.pkl')
     parser.add_argument('--eval_routes', type=str, default='../dataset/routes_possible_test_hard.pkl')
