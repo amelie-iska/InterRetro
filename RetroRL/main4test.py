@@ -77,9 +77,15 @@ traj_creator = TrajectoryCreator(agent)
 logging.info("Training starts ...")
 for epoch in range(args.epochs):
     archive = set(eval_mols)
-    for mol_idx in tqdm(range(500), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+    archive_len = len(archive)
+    for mol_idx in tqdm(range(2 * archive_len), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
         logs = {}
-        mol = archive.pop()
+        
+        if len(archive) == 0:
+            break
+        else:
+            mol = archive.pop()
+            
         try:
             tree, succ_subtrees, info = env.build_tree(agent, mol)
         except Exception as e:
