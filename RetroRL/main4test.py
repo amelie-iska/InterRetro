@@ -69,12 +69,11 @@ if __name__ == '__main__':
     logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
     
     agent = RetroRL(args)
-    buffer = ReplayBuffer(capacity=2000, agent=agent)
+    buffer = ReplayBuffer(capacity=10000, agent=agent)
     traj_creator = TrajectoryCreator(agent)
     
     runner = ParallelRunner(args)
     runner.synchronise_models(agent.graph2edits.state_dict())
-    
     logging.info("Training starts ...")
     for epoch in range(args.epochs):
         archive = set(eval_mols)
@@ -126,12 +125,15 @@ if __name__ == '__main__':
         runner.synchronise_models(agent.graph2edits.state_dict())
         
         # Evaluation
+        logging.info(f"Evaluation in epoch {epoch} starts ...")
         tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
         logs.update({'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
         
         joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
         logging.info(f"After-epoch Training Info ep {epoch}\n" + \
                      "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
+        if args.enable_wandb:
+            wandb.log({**logs})
         
 
 

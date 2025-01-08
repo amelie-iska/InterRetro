@@ -37,7 +37,6 @@ class RetroRL:
         self.atom_vocab = Vocab(joblib.load(self.args.atom_vocab_file))
         
         # Load Graph2Edits
-        print(args.graph2edits_model)
         checkpoint = torch.load(args.graph2edits_model)
         config = checkpoint['saveables']
         self.graph2edits = Graph2Edits(**config, device=args.device)
