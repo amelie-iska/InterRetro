@@ -1,14 +1,9 @@
 import pickle
 import logging
 import json
-import random
 import time
-import wandb
-from collections import deque
-import numpy as np
-
-
 import joblib
+import wandb
 
 from tqdm import tqdm
 from rdkit import Chem, RDLogger
@@ -38,8 +33,10 @@ if __name__ == '__main__':
         json.dump(args.__dict__, f, indent=4)
     if args.enable_wandb:
         wandb.init(project=args.project, config=args, group=args.group, name='{}_seed{}'.format(args.group, args.seed))
-    
-    
+        wandb.define_metric('update_step')
+        wandb.define_metric("graph2edits/training_loss", step_metric="update_step")
+        wandb.define_metric("graph2edits/training_accuracy", step_metric="update_step")
+        
     routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun)
     logging.info(f"{len(routes)} training routes have been loaded.")
     target_mols = []
@@ -61,7 +58,7 @@ if __name__ == '__main__':
     logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
     
     agent = RetroRL(args)
-    buffer = ReplayBuffer(capacity=10000, agent=agent)
+    buffer = ReplayBuffer(capacity=args.buffer_capacity, agent=agent)
     traj_creator = TrajectoryCreator(agent)
     
     runner = ParallelRunner(args)
@@ -99,7 +96,7 @@ if __name__ == '__main__':
             
             # Training
             if len(buffer) > 5 * args.training_batch_size:
-                for _ in range(5):
+                for _ in range(args.update_frequency):
                     rxn_batch = buffer.sample(args.training_batch_size)
                     fit_logs = agent.fit(rxn_batch)
                     logs.update(fit_logs)
@@ -107,12 +104,14 @@ if __name__ == '__main__':
             
             # Evaluation
             if it % args.eval_interval == 0:
+                start_time = time.time()
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
-                logs.update({'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
+                end_time = time.time()
+                logs.update({'evaluation/elapsed_time': end_time - start_time,
+                             'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
             
             # Logs
-            logs.update({'utils/buffer_size': len(buffer),
-                         'utils/archive_size': len(archive)})
+            logs.update({'utils/buffer_size': len(buffer), 'utils/archive_size': len(archive)})
             if it != total_iterations - 1:
                 logging.info(f"Training Info ep {epoch} it {it}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
                 if args.enable_wandb:
