@@ -6,28 +6,20 @@ import time
 import wandb
 from collections import deque
 import numpy as np
-import joblib
 
-import torch
-import torch.nn.functional as F
+
+import joblib
 
 from tqdm import tqdm
 from rdkit import Chem, RDLogger
 RDLogger.DisableLog('rdApp.*')
-from rdchiral.main import rdchiralRunText
 
 from replay_buffer import ReplayBuffer
 from trajectories import TrajectoryCreator
-from env import RetroEnv
-from alg import online_mcts
-from runners import SerialRunner, ParallelRunner
+from runners import ParallelRunner
 from agent import RetroRL
-from retrorl_utils import set_seeds, create_exp, smiles2array, prepare_starting_molecules, minicut, \
-    load_model_to_runner
+from retrorl_utils import set_seeds, create_exp, prepare_starting_molecules, minicut
 from config_parser import get_args
-
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 if __name__ == '__main__':
     args = get_args()
@@ -76,9 +68,9 @@ if __name__ == '__main__':
     runner.synchronise_models(agent.graph2edits.state_dict())
     logging.info("Training starts ...")
     for epoch in range(args.epochs):
-        archive = set(eval_mols)
-        archive_len = len(archive)
-        for it in tqdm(range(2 * int(archive_len/args.explore_batch_size)), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
+        archive = set(target_mols)
+        total_iterations = 2 * int(len(archive) / args.explore_batch_size)
+        for it in tqdm(range(total_iterations), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
             
             logs = {}
             
@@ -87,17 +79,15 @@ if __name__ == '__main__':
                 if len(archive) == 0: break
                 mols.append(archive.pop())
             
-            try:
-                start_time = time.time()
-                tree_list, succ_subtrees_list, info_list = runner.run(mols, test=False)
-                end_time = time.time()
-                logs.update({'explore/elapsed_time': end_time - start_time,
-                             'explore/valid_percentage': len(tree_list) / args.explore_batch_size,
-                             'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
-            except Exception as e:
-                logging.warning(f'{e}')
-                continue
+            # Explore
+            start_time = time.time()
+            tree_list, succ_subtrees_list, info_list = runner.run(mols, test=False)
+            end_time = time.time()
+            logs.update({'explore/elapsed_time': end_time - start_time,
+                         'explore/valid_percentage': len(tree_list) / len(mols),
+                         'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
             
+            # Memorise
             for tree, succ_subtrees, info in zip(tree_list, succ_subtrees_list, info_list):
                 if len(succ_subtrees) > 0: # Save to buffer
                     for subtree in succ_subtrees:
@@ -106,34 +96,29 @@ if __name__ == '__main__':
                            buffer.add(**branch)
                 if not info['success']: # Save to archive
                     archive.add(tree.id)
-                        
             
+            # Training
+            if len(buffer) > 5 * args.training_batch_size:
+                for _ in range(5):
+                    rxn_batch = buffer.sample(args.training_batch_size)
+                    fit_logs = agent.fit(rxn_batch)
+                    logs.update(fit_logs)
+                runner.synchronise_models(agent.graph2edits.state_dict())
+            
+            # Evaluation
+            if it % args.eval_interval == 0:
+                tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
+                logs.update({'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
+            
+            # Logs
             logs.update({'utils/buffer_size': len(buffer),
                          'utils/archive_size': len(archive)})
-            logging.info(f"Training Info ep {epoch} it {it}\n" + \
-                         "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
-            if args.enable_wandb:
-                wandb.log({**logs})
-        
-        
-        # Training
-        logs = {}
-        for _ in tqdm(range(1000), mininterval=1.0, desc=f"After-epoch{epoch} training", dynamic_ncols=True, leave=True):
-            rxn_batch = buffer.sample(args.training_batch_size)
-            fit_logs = agent.fit(rxn_batch)
-            logs.update(fit_logs)
-        runner.synchronise_models(agent.graph2edits.state_dict())
-        
-        # Evaluation
-        logging.info(f"Evaluation in epoch {epoch} starts ...")
-        tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
-        logs.update({'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
-        
+            if it != total_iterations - 1:
+                logging.info(f"Training Info ep {epoch} it {it}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
+                if args.enable_wandb:
+                    wandb.log({**logs})
+
         joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
-        logging.info(f"After-epoch Training Info ep {epoch}\n" + \
-                     "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
-        if args.enable_wandb:
-            wandb.log({**logs})
         
 
 

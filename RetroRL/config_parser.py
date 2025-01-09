@@ -11,10 +11,8 @@ def get_args():
     parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
     parser.add_argument('--minirun',  type=int, choices=[0, 1], default=1)
     
-    parser.add_argument('--evaluation_interval', type=int, default=200)
-    parser.add_argument('--log_interval', type=int, default=100)
-    parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--runner', type=str, default='serial')
+    parser.add_argument('--epochs', type=int, default=10)
+    parser.add_argument('--eval_interval', type=int, default=100)
     
     # One-step model
     parser.add_argument('--lr', type=float, default=1e-3)
