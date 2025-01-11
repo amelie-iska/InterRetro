@@ -4,7 +4,7 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--device',  type=str, choices=['cuda', 'mps', 'cpu'], default='cpu')
-    parser.add_argument('--n_processes', type=int, default=10)
+    parser.add_argument('--n_processes', type=int, default=8)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
@@ -16,7 +16,7 @@ def get_args():
     
     # One-step model
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--buffer_capacity', type=int, default=100000)
+    parser.add_argument('--buffer_capacity', type=int, default=20000)
     parser.add_argument('--training_batch_size', type=int, default=64)
     parser.add_argument('--explore_batch_size', type=int, default=32)
     parser.add_argument('--update_frequency', type=int, default=10)

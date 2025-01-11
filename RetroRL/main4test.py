@@ -40,6 +40,7 @@ if __name__ == '__main__':
     for route in routes:
         for rxn in route:
             target_mols.append(Chem.CanonSmiles(rxn.split('>')[0]))
+    del routes
     target_mols = list(set(target_mols))
     logging.info(f"{len(target_mols)} target molecules are loaded after removing duplicates. ")
     
@@ -48,11 +49,9 @@ if __name__ == '__main__':
     eval_mols = []
     for route in eval_routes:
         eval_mols.append(Chem.CanonSmiles(route[0].split('>')[0]))
+    del eval_routes
     eval_mols = list(set(eval_mols))
     logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
-    
-    building_blocks = prepare_starting_molecules(args.building_blocks_path)
-    logging.info(f"{len(building_blocks)} building blocks have been loaded. ")
     
     agent = RetroRL(args)
     buffer = ReplayBuffer(capacity=args.buffer_capacity, agent=agent)
@@ -100,14 +99,13 @@ if __name__ == '__main__':
                 runner.synchronise_models(agent.graph2edits.state_dict())
             
             # Evaluation
-            '''
             if it % args.eval_interval == 0:
                 start_time = time.time()
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
-            '''
+
             # Logs
             logs.update({'utils/buffer_size': len(buffer), 'utils/archive_size': len(archive)})
             if it != total_iterations - 1:

@@ -46,7 +46,7 @@ class RetroRL:
         self.graph2edits_optim = torch.optim.Adam(self.graph2edits.parameters(), lr=args.lr)
         
         # Load bream search
-        self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=10,
+        self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=5,
                                      beam_size=10, use_rxn_class=False)
     
     def fit(self, rxn_batch):
