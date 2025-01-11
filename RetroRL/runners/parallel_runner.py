@@ -88,11 +88,10 @@ class ParallelRunner:
                     
         return tree_list, succ_subtrees_list, info_list
 
-   
-
     def synchronise_models(self, model_state_dict): # TODO
+        cpu_state_dict = {k: v.cpu() for k, v in model_state_dict.items()}
         for i in range(self.n_processes):
-            self.parent_conns[i].send(("load", (model_state_dict, )))
+            self.parent_conns[i].send(("load", (cpu_state_dict, )))
 
     def close(self):
         for i in range(self.n_processes):

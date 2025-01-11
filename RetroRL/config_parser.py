@@ -3,12 +3,12 @@ import argparse
 def get_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--n_processes', type=int, default=8)
+    parser.add_argument('--device',  type=str, choices=['cuda', 'mps', 'cpu'], default='mps')
+    parser.add_argument('--n_processes', type=int, default=4)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
-    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
+    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=0)
     parser.add_argument('--minirun',  type=int, choices=[0, 1], default=1)
     
     parser.add_argument('--epochs', type=int, default=100)

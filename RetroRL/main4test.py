@@ -33,9 +33,6 @@ if __name__ == '__main__':
         json.dump(args.__dict__, f, indent=4)
     if args.enable_wandb:
         wandb.init(project=args.project, config=args, group=args.group, name='{}_seed{}'.format(args.group, args.seed))
-        wandb.define_metric('update_step')
-        wandb.define_metric("graph2edits/training_loss", step_metric="update_step")
-        wandb.define_metric("graph2edits/training_accuracy", step_metric="update_step")
         
     routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun)
     logging.info(f"{len(routes)} training routes have been loaded.")
@@ -103,13 +100,14 @@ if __name__ == '__main__':
                 runner.synchronise_models(agent.graph2edits.state_dict())
             
             # Evaluation
+            '''
             if it % args.eval_interval == 0:
                 start_time = time.time()
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
-            
+            '''
             # Logs
             logs.update({'utils/buffer_size': len(buffer), 'utils/archive_size': len(archive)})
             if it != total_iterations - 1:

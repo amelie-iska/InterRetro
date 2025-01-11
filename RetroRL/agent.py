@@ -37,7 +37,7 @@ class RetroRL:
         self.atom_vocab = Vocab(joblib.load(self.args.atom_vocab_file))
         
         # Load Graph2Edits
-        checkpoint = torch.load(args.graph2edits_model)
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
         config = checkpoint['saveables']
         self.graph2edits = Graph2Edits(**config, device=args.device)
         self.graph2edits.load_state_dict(checkpoint['state'])
@@ -451,4 +451,6 @@ class RetroRL:
         return Chem.MolToSmiles(mol)
 
     def load_state_dict(self, state_dict):
+        self.graph2edits.to(device="cpu")
         self.graph2edits.load_state_dict(state_dict)
+        self.graph2edits.to(device=self.args.device)
