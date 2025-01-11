@@ -3,8 +3,8 @@ import argparse
 def get_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--device',  type=str, choices=['cuda', 'mps', 'cpu'], default='mps')
-    parser.add_argument('--n_processes', type=int, default=4)
+    parser.add_argument('--device',  type=str, choices=['cuda', 'mps', 'cpu'], default='cpu')
+    parser.add_argument('--n_processes', type=int, default=10)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
