@@ -72,7 +72,7 @@ class RetroEnv:
         obs = self.reset(mol)
         for t in range(1, 16):
             if test:
-                reactants, edits = agent.get_reactants(obs, sampling=False)
+                reactants, edits = agent.get_reactants(obs, sampling=False, max_steps=9)
             else:
                 reactants, edits = agent.get_reactants(obs, sampling=True)
             next_obs, reward, done, info = self.step(reactants, edits)

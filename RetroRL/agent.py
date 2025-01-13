@@ -407,13 +407,13 @@ class RetroRL:
         return filter_rxns_data
     
     
-    def get_reactants(self, p_smi, sampling=False):
+    def get_reactants(self, p_smi, sampling=False, max_steps=5):
         p_smi = self.canonicalize(p_smi)
         mol = Chem.MolFromSmiles(p_smi)
         for i, atom in enumerate(mol.GetAtoms(), start=1):
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
-        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=9, rxn_class=False)
+        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=max_steps, rxn_class=False)
         
         all_reactants = []
         all_edits = []

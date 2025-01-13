@@ -24,12 +24,9 @@ def load_model_to_runner(model_net, value_net, prior_net, runner, n_gpus=1):
         runner.load_model(model_net.state_dict(), prior_net.state_dict(), value_net.state_dict())
 
 
-def minicut(input, minirun):
-    if minirun:
-        output = input[:int(len(input)/100)]
-        return output
-    else:
-        return input
+def minicut(input, minirun_rate):
+    output = input[:int(len(input)/minirun_rate)]
+    return output
     
 def prepare_starting_molecules(filename):
     if filename[-3:] == 'csv':
