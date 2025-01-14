@@ -32,10 +32,11 @@ class ReplayBuffer:
         
         self.pos += 1
         self.size = int(min(self.size + 1, self.capacity))
-        overlap = len(set(self.buffer['obs'][:self.pos])) / self.pos 
+        bound = min(self.pos, self.size)
+        diversity = len(set(self.buffer['obs'][:bound])) / bound
         return {'buffer/space': self.size/self.capacity,
                 'buffer/size': self.size,
-                'buffer/overlap': overlap}
+                'buffer/diversity': diversity}
 
     def sample(self, batch_size):
         indices = random.sample(range(self.size), batch_size)
