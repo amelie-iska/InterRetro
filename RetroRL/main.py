@@ -86,7 +86,8 @@ if __name__ == '__main__':
                     for subtree in succ_subtrees:
                        branches = traj_creator.extract_branches(subtree)
                        for branch in branches:
-                           buffer.add(**branch)
+                           buffer_logs = buffer.add(**branch)
+                           logs.update(buffer_logs)
                 if not info['success']: # Save to archive
                     archive.add(tree.id)
             
@@ -107,7 +108,7 @@ if __name__ == '__main__':
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
 
             # Logs
-            logs.update({'utils/buffer_size': len(buffer), 'utils/archive_size': len(archive)})
+            logs.update({'archive/size': len(archive)})
             if it != total_iterations - 1:
                 logging.info(f"Training Info ep {epoch} it {it}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
                 if args.enable_wandb:
