@@ -80,25 +80,7 @@ if __name__ == '__main__':
                          'explore/valid_percentage': len(tree_list) / len(mols),
                          'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
             
-            # Memorise
-            
-            for tree, succ_subtrees, info in zip(tree_list, succ_subtrees_list, info_list):
-                if len(succ_subtrees) > 0: # Save to buffer
-                    for subtree in succ_subtrees:
-                       branches = traj_creator.extract_branches(subtree)
-                       for branch in branches:
-                           buffer_logs = buffer.add(**branch)
-                           logs.update(buffer_logs)
-                if not info['success']: # Save to archive
-                    branches = traj_creator.extract_branches(tree)
-                    for branch in branches:
-                        mol = Chem.MolFromSmiles(branch['obs'])
-                        for atom in mol.GetAtoms():
-                            atom.SetAtomMapNum(0)
-                        smiles = Chem.MolToSmiles(mol)
-                        archive.add(smiles)
-            
-            '''
+            # Memorise  
             for tree, succ_subtrees, info in zip(tree_list, succ_subtrees_list, info_list):
                 if len(succ_subtrees) > 0: # Save to buffer
                     for subtree in succ_subtrees:
@@ -108,7 +90,6 @@ if __name__ == '__main__':
                            logs.update(buffer_logs)
                 if not info['success']: # Save to archive
                     archive.add(tree.id)
-            '''
             
             # Training
             if len(buffer) > 5 * args.training_batch_size:
@@ -133,7 +114,7 @@ if __name__ == '__main__':
                 if args.enable_wandb:
                     wandb.log({**logs})
 
-        joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
+        #joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
         
 
 
