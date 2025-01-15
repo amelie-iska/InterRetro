@@ -9,14 +9,14 @@ def get_args():
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
     parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
-    parser.add_argument('--minirun_rate',  type=int, choices=[0, 1], default=100)
+    parser.add_argument('--minirun_rate',  type=int, choices=[0, 1], default=50)
     
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--eval_interval', type=int, default=250)
     
     # One-step model
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--buffer_capacity', type=int, default=10000)
+    parser.add_argument('--buffer_capacity', type=int, default=20000)
     parser.add_argument('--training_batch_size', type=int, default=64)
     parser.add_argument('--explore_batch_size', type=int, default=36)
     parser.add_argument('--update_frequency', type=int, default=5)
