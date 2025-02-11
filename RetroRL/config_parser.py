@@ -4,7 +4,7 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--device',  type=str, choices=['cuda', 'cpu'], default='cuda')
-    parser.add_argument('--n_processes', type=int, default=6)
+    parser.add_argument('--n_processes', type=int, default=1)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
