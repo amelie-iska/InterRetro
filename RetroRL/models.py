@@ -1,365 +1,174 @@
-import numpy as np
+import torch
+from torch_geometric.data import Data, Batch
+from rdkit import Chem
+
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch_geometric.nn import GINConv, global_mean_pool
+# or GCNConv, GraphConv, etc.
 
-from collections import defaultdict, OrderedDict
-from rdchiral.main import rdchiralRunText
+class ValueGNN(nn.Module):
+    """
+    A model that handles a *batch* of SMILES at once.
+    1) Each SMILES -> subgraph
+    2) We combine them into a single PyG Batch
+    3) GNN forward pass
+    4) Global pooling => [batch_size, hidden_dim]
+    5) MLP => [batch_size, 1] regression output
+    """
 
-from retrorl_utils import smiles2array
+    def __init__(self,
+                 node_dim: int = 21,   # dimension from featurize_atom
+                 edge_dim: int = 4,    # dimension from featurize_bond
+                 hidden_dim: int = 64,
+                 num_layers: int = 3,
+                 mlp_hidden_dim: int = 128,
+                 dropout: float = 0.1):
+        super(ValueGNN, self).__init__()
+
+        self.node_dim = node_dim
+        self.edge_dim = edge_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+
+        # Build GIN layers
+        self.convs = nn.ModuleList()
+        for i in range(num_layers):
+            # GIN needs an MLP for "update"
+            gin_mlp = nn.Sequential(
+                nn.Linear(hidden_dim if i>0 else node_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
+            conv = GINConv(nn=gin_mlp)
+            self.convs.append(conv)
+
+        # Final feed-forward
+        self.head = nn.Sequential(
+            nn.Linear(hidden_dim, mlp_hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_hidden_dim, 1)  # single scalar
+        )
+
+    def forward(self, smiles_list):
+        """
+        smiles_list: List[str] of length B (batch size)
+        Returns: tensor of shape [B, 1] with regression values.
+        """
+        # 1) Convert SMILES -> PyG Batch
+        batch_data = smiles_to_pyg_batch(smiles_list)  # merges them
+        device = next(self.parameters()).device
+        batch_data = batch_data.to(device)
+
+        # 2) GNN forward
+        x, edge_index, edge_attr, batch = (batch_data.x,
+                                           batch_data.edge_index,
+                                           batch_data.edge_attr,
+                                           batch_data.batch)
+
+        # x: [total_nodes, node_dim]
+        # batch: [total_nodes], each entry is which graph in the batch the node belongs to
+
+        h = x
+        for i, conv_layer in enumerate(self.convs):
+            h = conv_layer(h, edge_index)  # ignoring edge_attr for simplicity
+            h = F.relu(h)
+
+        # 3) Global Pooling => [batch_size, hidden_dim]
+        graph_embed = global_mean_pool(h, batch)
+
+        # 4) MLP => [batch_size, 1]
+        out = self.head(graph_embed)
+        return out  # shape [batch_size, 1]
 
 
-def merge(reactant_d):
-    ret = []
-    for reactant, l in reactant_d.items():
-        ss, srs, ts, ids = zip(*l)
-    #     k = np.argmax(ss)
-    #     ret.append((reactant, sum(ss), list(ts)[k], list(ids)[k]))
-    # reactants, scores, templates, templates_idx = zip(*sorted(ret, key=lambda item : item[1], reverse=True))
-        ret.append((reactant, sum(ss), sum(srs), list(ts)[0], list(ids)[0]))
-    reactants, scores, scores_reference, templates, templates_idx = zip(*sorted(ret, key=lambda item : item[1], reverse=True))
-    return list(reactants), list(scores), list(scores_reference), list(templates), list(templates_idx)
+def featurize_atom(atom: Chem.Atom) -> torch.Tensor:
+    """
+    Example: one-hot atomic number up to 20 + is_aromatic => 21D (or 22D).
+    Adjust as you see fit.
+    """
+    max_num = 20
+    atomic_num = atom.GetAtomicNum()
+    atomic_num = min(atomic_num, max_num)
+    one_hot = [0]*max_num
+    if atomic_num > 0:
+        one_hot[atomic_num-1] = 1
+    is_aromatic = 1 if atom.GetIsAromatic() else 0
+    feats = torch.tensor(one_hot + [is_aromatic], dtype=torch.float)
+    return feats
 
+def featurize_bond(bond: Chem.Bond) -> torch.Tensor:
+    """
+    4D bond feature: single/double/triple/aromatic.
+    """
+    from rdkit import Chem
+    bt = bond.GetBondType()
+    if bt == Chem.BondType.SINGLE:
+        return torch.tensor([1, 0, 0, 0], dtype=torch.float)
+    elif bt == Chem.BondType.DOUBLE:
+        return torch.tensor([0, 1, 0, 0], dtype=torch.float)
+    elif bt == Chem.BondType.TRIPLE:
+        return torch.tensor([0, 0, 1, 0], dtype=torch.float)
+    elif bond.GetIsAromatic():
+        return torch.tensor([0, 0, 0, 1], dtype=torch.float)
+    else:
+        return torch.tensor([1, 0, 0, 0], dtype=torch.float)  # fallback
 
+def mol_to_pyg_data(mol: Chem.Mol) -> Data:
+    """
+    Convert an RDKit Mol into a PyG Data object with:
+      - x: node features (shape [num_atoms, node_dim])
+      - edge_index: [2, num_edges]
+      - edge_attr: [num_edges, edge_dim]
+    """
+    # Build node features
+    atom_feats_list = [featurize_atom(atom) for atom in mol.GetAtoms()]
+    if len(atom_feats_list) == 0:
+        # Empty => return dummy
+        return Data(x=torch.zeros((0,)), edge_index=torch.zeros((2,0),dtype=torch.long))
+    x = torch.stack(atom_feats_list, dim=0)  # [num_atoms, node_dim]
 
-class RolloutPolicyNet(nn.Module):
-    def __init__(self, n_rules, fp_dim=2048, dim=512, dropout_rate=0.3):
-        super(RolloutPolicyNet, self).__init__()
-        self.fp_dim = fp_dim
-        self.n_rules = n_rules
-        self.dropout_rate = dropout_rate
-        self.fc1 = nn.Linear(fp_dim,dim)
-        self.bn1 = nn.BatchNorm1d(dim)
-        self.dropout1 = nn.Dropout(dropout_rate)
-        # self.fc2 = nn.Linear(dim,dim)
-        # self.bn2 = nn.BatchNorm1d(dim)
-        # self.dropout2 = nn.Dropout(dropout_rate)
-        self.fc3 = nn.Linear(dim,n_rules)
+    # Build edges
+    edges = []
+    edge_feats_list = []
+    for bond in mol.GetBonds():
+        a1 = bond.GetBeginAtomIdx()
+        a2 = bond.GetEndAtomIdx()
+        edges.append((a1, a2))
+        edges.append((a2, a1))
+        bf = featurize_bond(bond)
+        edge_feats_list.append(bf)
+        edge_feats_list.append(bf)
+    if len(edges) == 0:
+        edge_index = torch.zeros((2,0), dtype=torch.long)
+        edge_attr = torch.zeros((0,4), dtype=torch.float)
+    else:
+        edge_index = torch.tensor(edges, dtype=torch.long).t()  # shape [2, E]
+        edge_attr = torch.stack(edge_feats_list, dim=0)         # shape [E, 4]
 
-    def forward(self,x, y=None, loss_fn =nn.CrossEntropyLoss()):
-        x = self.dropout1(F.elu(self.bn1(self.fc1(x))))
-        # x = self.dropout1(F.elu(self.fc1(x)))
-        # x = self.dropout2(F.elu(self.bn2(self.fc2(x))))
-        x = self.fc3(x)
-        if y is not None :
-            return loss_fn(x, y)
-        else :
-            return x
-        return x
+    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
 
-def load_model(state_path, template_rule_path,fp_dim=2048):
-    template_rules = {}
-    with open(template_rule_path, 'r') as f:
-        for i, l in enumerate(f):
-            rule= l.strip()
-            template_rules[rule] = i
-    idx2rule = {}
-    for rule, idx in template_rules.items():
-        idx2rule[idx] = rule
-    rollout = RolloutPolicyNet(len(template_rules),fp_dim=fp_dim)
-    
-    state_dict = torch.load(state_path, map_location='cpu')
-    # Remove the 'module.' prefix if present (i.e., if it was saved using DataParallel)
-    new_state_dict = {}
-    for key in state_dict.keys():
-        new_key = key.replace("module.", "")  # Remove 'module.' prefix
-        new_state_dict[new_key] = state_dict[key]
-    rollout.load_state_dict(new_state_dict)
-    return rollout, idx2rule, template_rules
-    
-class MLPModel:
-    def __init__(self, state_path, template_path, device='cuda', fp_dim=2048, realistic_filter=False):
-        super(MLPModel, self).__init__()
-        self.fp_dim = fp_dim
-        self.net, self.idx2rules, self.rules2idx = load_model(state_path, template_path, fp_dim)
-        self.net.eval()
-        self.device = device
-        self.net.to(device)
+def smiles_to_pyg_batch(smiles_list):
+    """
+    Takes a list of SMILES and returns a PyG Batch object containing
+    all their graphs. Each element in the list becomes one subgraph
+    in the batch.
+    """
+    from rdkit import Chem
 
-        self.realistic_filter = realistic_filter
-        
-        self.reference_net, _, _ = load_model(state_path, template_path, fp_dim)
-        self.reference_net.eval()
-        self.reference_net.to(device)
-
-    def forward_topk(self, arr, topk=10):
-        preds = self.net(arr)
-        preds_reference = self.reference_net(arr).detach()
-
-        if self.realistic_filter:
-            # preds_ref is a probability distribution over all templates
-            preds_reference, idx_topk = torch.topk(preds_reference, k=topk)
-            # We take the templates suggested by net but agreed by ref_net
-            preds = preds.gather(1, idx_topk)
+    data_list = []
+    for smi in smiles_list:
+        mol = Chem.MolFromSmiles(smi)
+        if mol is None:
+            # Invalid => produce empty graph or skip
+            data = Data(x=torch.zeros((0,)), edge_index=torch.zeros((2,0),dtype=torch.long))
         else:
-            preds, idx_topk = torch.topk(preds, k=topk)
-            preds_reference = preds_reference.gather(1, idx_topk)
+            data = mol_to_pyg_data(mol)
+        data_list.append(data)
 
-        return preds, preds_reference, idx_topk
-    
-    def run(self, mol_node, topk=10, backward=True, sample_mode=None, test=False):
-        x = mol_node.mol if hasattr(mol_node, 'mol') else mol_node
-        arr = smiles2array(x, self.fp_dim)
-        arr = np.reshape(arr,[-1, arr.shape[0]])
-        arr = torch.tensor(arr, dtype=torch.float32)
-        if self.device >= 0:
-            arr = arr.to(self.device)
-        # preds = self.net(arr)
-        # preds = F.softmax(preds,dim=1)
-        # if self.device >= 0:
-        #     preds = preds.cpu()
-        # probs, idx = torch.topk(preds,k=topk)
-        preds, preds_reference, idx = self.forward_topk(arr, topk=topk)
-        probs = F.softmax(preds, dim=1)
-        probs_reference = F.softmax(preds_reference, dim=1)
-        preds, preds_reference, idx, probs, probs_reference = preds.cpu(), preds_reference.cpu(), idx.cpu(), probs.cpu(), probs_reference.cpu()
-        # probs = F.softmax(preds, dim=1)
-        # probs_reference = F.softmax(preds_reference, dim=1)
-        rule_k = [self.idx2rules[id] for id in idx[0].numpy().tolist()]
-        reactants = []
-        scores = []
-        scores_reference = []
-        templates = []
-        templates_idx = []
-
-        if sample_mode == 'template':
-            # probs = probs / probs.sum()
-            result = {'reactants':[],
-                      'reactant_lists': [],
-                      'template' : [],
-                      'templates_idx': []}
-            ancestors = mol_node.get_ancestors()
-            for i in range(topk):
-                try:
-                    is_invalid = True # if current template, i.e., idx[i], is valid
-                    if test:
-                        template_idx = torch.argmax(probs[0]).item()
-                    else:
-                        template_idx = torch.multinomial(probs[0], 1).item() # TODO: sum of probabilities <= 0
-                    rule = rule_k[template_idx]
-                    out1 = rdchiralRunText(rule, x)
-                    out1 = sorted(out1)
-                    # check repeated molecules
-                    for reactants in out1:
-                        reactant_list = list(set(reactants.split('.')))
-                        is_repeated = False
-                        # for reactant in reactant_list:
-                        #     if reactant in ancestors:
-                        #         is_repeated = True
-                        #         break
-                        if not is_repeated:
-                            is_invalid = False
-                            result['reactants'].append(reactants)
-                            result['reactant_lists'].append(reactant_list)
-                            result['template'].append(rule)
-                            result['templates_idx'].append(template_idx if self.realistic_filter else idx[0][template_idx].item())
-                except (ValueError, RuntimeError) as e:
-                    """
-                    RuntimeError: Pre-condition Violation
-                    Stereo atoms should be specified before specifying CIS/TRANS bond stereochemistry
-                    Violation occurred on line 288 in file Code/GraphMol/Bond.h
-                    Failed Expression: what <= STEREOE || getStereoAtoms().size() == 2
-                    RDKIT: 2020.09.1
-                    BOOST: 1_73
-                    """
-                    pass
-                except (IndexError, KeyError) as e:
-                    """
-                    rdchiral bug during function call rdchiralRunText(rule, mol)
-                    This error can be reprobuced by the following code:
-                    mol = 'C[C@H](OC(=O)C=O)C(=O)O'
-                    rule = '([#8:1]-[C:2](=[O;D1;H0:3])-[CH;D2;+0:4]=[O;H0;D1;+0:5])>>[#8:1]-[C:2](=[O;D1;H0:3])-[C@@H;D3;+0:4](-[OH;D1;+0:5])-[C@H;D3;+0:4](-[OH;D1;+0:5])-[C:2](-[#8:1])=[O;D1;H0:3]'
-                    out1 = rdchiralRunText(rule, mol)
-                    """
-                    pass
-                if is_invalid: # invalid molecule
-                    result['reactants'].append('Invalid')
-                    result['reactant_lists'].append(['Invalid'])
-                    result['template'].append(rule)
-                    result['templates_idx'].append(template_idx if self.realistic_filter else idx[0][template_idx].item())
-                    probs[0][template_idx] = 0
-                else:
-                    return result
-
-            return None
-            
-        for i , rule in enumerate(rule_k):
-            out1 = []
-            try:
-                if backward:
-                    out1 = rdchiralRunText(rule, x)
-                else:
-                    rxn_prod, rxn_agent, rxn_react = rule.split(">")
-                    reversed_rule = '(' + rxn_react + ')>' + rxn_agent + '>' + rxn_prod[1:-1]
-                    out1 = rdchiralRunText(reversed_rule, x)
-                # out1 = rdchiralRunText(rule, Chem.MolToSmiles(Chem.MolFromSmarts(x)))
-                if len(out1) == 0: continue
-                # if len(out1) > 1: print("more than two reactants."),print(out1)
-                out1 = sorted(out1)
-                for reactant in out1:
-                    reactants.append(reactant)
-                    scores.append(probs[0][i].item()/len(out1))
-                    scores_reference.append(probs_reference[0][i].item()/len(out1))
-                    templates.append(rule)
-                    templates_idx.append(i if self.realistic_filter else idx[0][i].item())
-            # out1 = rdchiralRunText(x, rule)
-            except (ValueError, RuntimeError) as e:
-                """
-                RuntimeError: Pre-condition Violation
-                Stereo atoms should be specified before specifying CIS/TRANS bond stereochemistry
-                Violation occurred on line 288 in file Code/GraphMol/Bond.h
-                Failed Expression: what <= STEREOE || getStereoAtoms().size() == 2
-                RDKIT: 2020.09.1
-                BOOST: 1_73
-                """
-                pass
-            except (IndexError, KeyError) as e:
-                """
-                rdchiral bug during function call rdchiralRunText(rule, mol)
-                This error can be reprobuced by the following code:
-                mol = 'C[C@H](OC(=O)C=O)C(=O)O'
-                rule = '([#8:1]-[C:2](=[O;D1;H0:3])-[CH;D2;+0:4]=[O;H0;D1;+0:5])>>[#8:1]-[C:2](=[O;D1;H0:3])-[C@@H;D3;+0:4](-[OH;D1;+0:5])-[C@H;D3;+0:4](-[OH;D1;+0:5])-[C:2](-[#8:1])=[O;D1;H0:3]'
-                out1 = rdchiralRunText(rule, mol)
-                """
-                pass
-        if len(reactants) == 0: return None
-        reactants_d = defaultdict(list)
-        for r, s, sr, t, id in zip(reactants, scores, scores_reference, templates, templates_idx):
-            if '.' in r:
-                str_list = sorted(r.strip().split('.'))
-                reactants_d['.'.join(str_list)].append((s, sr, t, id))
-            else:
-                reactants_d[r].append((s, sr, t, id))
-
-        reactants, scores, scores_reference, templates, templates_idx = merge(reactants_d)
-        total = sum(scores)
-        total_reference = sum(scores_reference)
-        scores = [s / total for s in scores]
-        scores_reference = [s / total_reference for s in scores_reference]
-
-        if sample_mode == 'molecule':
-            reactant_idx = np.random.choice(len(scores), p=scores)
-            return {'reactants':reactants[reactant_idx:reactant_idx+1],
-                    'scores' : scores[reactant_idx:reactant_idx+1],
-                    'template' : templates[reactant_idx:reactant_idx+1]}
-
-        return {'reactants':reactants,
-                'scores' : scores,
-                'scores_reference' : scores_reference,
-                'template' : templates,
-                'templates_idx': templates_idx}
-
-class ActionRepresentation(nn.Module):
-    def __init__(self, state_dim, ac_dim, device):
-        super(ActionRepresentation, self).__init__()
-        self.model = nn.Sequential(nn.Linear(state_dim, 1024),
-                                   nn.ReLU(),
-                                   nn.Linear(1024, 1024),
-                                   nn.ReLU(),
-                                   nn.Linear(1024, ac_dim))
-        self.model.to(device=device)
-        
-    def forward(self, rxn):
-        return self.model(rxn)
-        
-        
-class QValueMLP(nn.Module):
-  def __init__(self, n_layers, fp_dim, rxn_dim, latent_dim, dropout_rate, device):
-      super(ValueMLP, self).__init__()
-      self.n_layers = n_layers
-      self.rxn_dim = rxn_dim
-      self.fp_dim = fp_dim
-      self.latent_dim = latent_dim
-      self.dropout_rate = dropout_rate
-      self.device = device
-
-      layers = []
-      layers.append(nn.Linear(fp_dim+rxn_dim, latent_dim))
-      layers.append(nn.ReLU())
-      layers.append(nn.Dropout(self.dropout_rate))
-      for _ in range(self.n_layers - 1):
-          layers.append(nn.Linear(latent_dim, latent_dim))
-          layers.append(nn.ReLU())
-          layers.append(nn.Dropout(self.dropout_rate))
-      layers.append(nn.Linear(latent_dim, 1))
-
-      self.layers = nn.Sequential(*layers).to(device=device)
-
-  def forward(self, fps, rxn):
-      x = torch.cat([fps, rxn], dim=1)
-      x = self.layers(x)
-      x = torch.log(1 + torch.exp(x))
-      return x
-      
-         
-class ValueMLP(nn.Module):
-    def __init__(self, n_layers, fp_dim, latent_dim, dropout_rate, device):
-        super(ValueMLP, self).__init__()
-        self.n_layers = n_layers
-        self.fp_dim = fp_dim
-        self.latent_dim = latent_dim
-        self.dropout_rate = dropout_rate
-        self.device = device
-
-        layers = []
-        layers.append(nn.Linear(fp_dim, latent_dim))
-        # layers.append(nn.BatchNorm1d(latent_dim,
-        #                              track_running_stats=False))
-        layers.append(nn.ReLU())
-        layers.append(nn.Dropout(self.dropout_rate))
-        for _ in range(self.n_layers - 1):
-            layers.append(nn.Linear(latent_dim, latent_dim))
-            # layers.append(nn.BatchNorm1d(latent_dim,
-            #                              track_running_stats=False))
-            layers.append(nn.ReLU())
-            layers.append(nn.Dropout(self.dropout_rate))
-        layers.append(nn.Linear(latent_dim, 1))
-
-        self.layers = nn.Sequential(*layers).to(device=device)
-
-    def forward(self, fps):
-        x = fps
-        x = self.layers(x)
-        x = torch.log(1 + torch.exp(x))
-
-        return x
-        
-        
-class PriorMLP(nn.Module):
-    def __init__(self, n_layers, fp_dim, latent_dim, dropout_rate, device):
-        super(PriorMLP, self).__init__()
-        self.n_layers = n_layers
-        self.fp_dim = fp_dim
-        self.latent_dim = latent_dim
-        self.dropout_rate = dropout_rate
-        self.device = device
-
-        layers = []
-        layers.append(nn.Linear(fp_dim, latent_dim))
-        # layers.append(nn.BatchNorm1d(latent_dim,
-        #                              track_running_stats=False))
-        layers.append(nn.ReLU())
-        layers.append(nn.Dropout(self.dropout_rate))
-        for _ in range(self.n_layers - 1):
-            layers.append(nn.Linear(latent_dim, latent_dim))
-            # layers.append(nn.BatchNorm1d(latent_dim,
-            #                              track_running_stats=False))
-            layers.append(nn.ReLU())
-            layers.append(nn.Dropout(self.dropout_rate))
-        layers.append(nn.Linear(latent_dim, 1))
-
-        self.layers = nn.Sequential(*layers).to(device=device)
-
-    def forward(self, fps):
-        x = fps
-        x = self.layers(x)
-        # x = torch.log(1 + torch.exp(x))
-        x = torch.sigmoid(x)
-
-        return x
-        
-        
-        
-        
-        
+    # Merge into a single Batch
+    batch = Batch.from_data_list(data_list)
+    return batch

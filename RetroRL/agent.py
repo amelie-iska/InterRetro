@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from rdkit import Chem
 
-from models import MLPModel, ActionRepresentation, ValueMLP, PriorMLP
+from models import ValueGNN
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 from Graph2Edits.models import Graph2Edits, BeamSearch
@@ -53,8 +53,48 @@ class RetroRL:
         # Load bream search
         self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=5,
                                      beam_size=10, use_rxn_class=False)
-    
-    def fit(self, rxn_batch):
+
+        self.value_fn = ValueGNN(node_dim=21, edge_dim=4, hidden_dim=64, num_layers=3)
+        self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
+
+    def fit_value(self, rxn_batch):
+        prod_smiles = rxn_batch['obs']
+        react_smiles = rxn_batch['next_obs']
+        rewards = rxn_batch['rewards']
+
+        prod_values = self.value_fn(prod_smiles)
+        with torch.no_grad():
+            react_values_list = []
+            for reacts in react_smiles:
+                if len(reacts) > 1:
+                    # Multiple reactant SMILES
+                    val_batch = self.value_fn(reacts)
+                    max_val = val_batch.max()
+                    react_values_list.append(max_val)
+                else:
+                    # Single reactant SMILES
+                    val_single = self.value_fn(reacts)
+                    react_values_list.append(val_single.squeeze())
+            react_values = torch.stack(react_values_list).unsqueeze(dim=-1)
+
+            rewards_list = []
+            for rwds in rewards:
+                rewards_list.append(int(len(rwds)==sum(rwds)))
+            rewards_tensor = torch.tensor(rewards_list).unsqueeze(dim=-1)
+
+            targets = 1 + (1 - rewards_tensor) * react_values
+            targets = torch.clamp(targets, max=15.0)
+
+        loss = F.mse_loss(prod_values, targets)
+        self.value_optim.zero_grad()
+        loss.backward()
+        self.value_optim.step()
+
+        return {'value_fn/training_loss': loss.item(),
+                'value_fn/target': targets.mean().item()}
+
+
+    def fit_policy(self, rxn_batch):
         batch_graphs = rxn_batch['graphs']
         graph_seq_tensors, seq_labels, seq_mask = self.process_batch(batch_graphs)
         

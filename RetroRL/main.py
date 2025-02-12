@@ -62,7 +62,7 @@ if __name__ == '__main__':
     runner = ParallelRunner(args)
     runner.synchronise_models(agent.graph2edits.state_dict())
     logging.info("Training starts ...")
-    
+
     for epoch in range(args.epochs):
         archive = set(target_mols)
         total_iterations = 2 * int(len(archive) / args.explore_batch_size)
@@ -98,18 +98,21 @@ if __name__ == '__main__':
             if len(buffer) > 5 * args.training_batch_size:
                 for _ in range(args.update_frequency):
                     rxn_batch = buffer.sample(args.training_batch_size)
-                    fit_logs = agent.fit(rxn_batch)
-                    logs.update(fit_logs)
+                    policy_logs = agent.fit_policy(rxn_batch)
+                    value_logs = agent.fit_value(rxn_batch)
+                    logs.update(policy_logs)
+                    logs.update(value_logs)
                 runner.synchronise_models(agent.graph2edits.state_dict())
-            
+
             # Evaluation
+            '''
             if it % args.eval_interval == 0:
                 start_time = time.time()
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
-
+            '''
             # Logs
             logs.update({'archive/size': len(archive)})
             if it != total_iterations - 1:
@@ -117,7 +120,7 @@ if __name__ == '__main__':
                 if args.enable_wandb:
                     wandb.log({**logs})
 
-        #joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
+        joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
         
 
 
