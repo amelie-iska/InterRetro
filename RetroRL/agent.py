@@ -1,15 +1,20 @@
+
 import os
+import sys
+import random
+import copy
+
+import numpy as np
+
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-import numpy as np
-import random
-import copy
 
 from rdkit import Chem
 
 from models import MLPModel, ActionRepresentation, ValueMLP, PriorMLP
-from retrorl_utils import smiles2array
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, parent_dir)
 from Graph2Edits.models import Graph2Edits, BeamSearch
 from Graph2Edits.utils.generate_edits import generate_reaction_edits
 from Graph2Edits.utils.rxn_graphs import MolGraph, RxnGraph, Vocab

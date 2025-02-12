@@ -33,7 +33,8 @@ if __name__ == '__main__':
         json.dump(args.__dict__, f, indent=4)
     if args.enable_wandb:
         wandb.init(project=args.project, config=args, group=args.group, name='{}_seed{}'.format(args.group, args.seed))
-        
+    
+    # Molecules for training
     routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun_rate)
     logging.info(f"{len(routes)} training routes have been loaded.")
     target_mols = []
@@ -44,6 +45,7 @@ if __name__ == '__main__':
     target_mols = list(set(target_mols))
     logging.info(f"{len(target_mols)} target molecules are loaded after removing duplicates. ")
     
+    # Molecules for evaluation
     eval_routes = pickle.load(open(args.eval_routes, 'rb'))
     logging.info(f"{len(eval_routes)} evaluation routes have been loaded.")
     eval_mols = []
@@ -60,6 +62,7 @@ if __name__ == '__main__':
     runner = ParallelRunner(args)
     runner.synchronise_models(agent.graph2edits.state_dict())
     logging.info("Training starts ...")
+    
     for epoch in range(args.epochs):
         archive = set(target_mols)
         total_iterations = 2 * int(len(archive) / args.explore_batch_size)

@@ -4,11 +4,11 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--device',  type=str, choices=['cuda', 'cpu'], default='cuda')
-    parser.add_argument('--n_processes', type=int, default=1)
+    parser.add_argument('--n_processes', type=int, default=6)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
     parser.add_argument('--group', type=str, default='RetroRL')
-    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
+    parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=0)
     parser.add_argument('--minirun_rate',  type=int, choices=[0, 1], default=50)
     
     parser.add_argument('--epochs', type=int, default=100)
@@ -18,7 +18,7 @@ def get_args():
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--buffer_capacity', type=int, default=20000)
     parser.add_argument('--training_batch_size', type=int, default=64)
-    parser.add_argument('--explore_batch_size', type=int, default=36)
+    parser.add_argument('--explore_batch_size', type=int, default=36) # 36
     parser.add_argument('--update_frequency', type=int, default=5)
     
     parser.add_argument('--training_routes', type=str, default='../dataset/routes_train.pkl')

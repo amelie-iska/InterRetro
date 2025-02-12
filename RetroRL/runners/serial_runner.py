@@ -24,7 +24,7 @@ class SerialRunner:
         self.args = args
         self.building_blocks = prepare_starting_molecules(args.building_blocks_path)
         self.agent = RetroRL(args)
-        self.env = RetroEnv(blocking_blocks=self.building_blocks)
+        self.env = RetroEnv(building_blocks=self.building_blocks)
 
     
     def run(self, target_mols, test):
