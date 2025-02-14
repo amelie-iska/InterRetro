@@ -81,7 +81,8 @@ if __name__ == '__main__':
             end_time = time.time()
             logs.update({'explore/elapsed_time': end_time - start_time,
                          'explore/valid_percentage': len(tree_list) / len(mols),
-                         'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
+                         'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list),
+                         'explore/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
             
             # Memorise  
             for tree, succ_subtrees, info in zip(tree_list, succ_subtrees_list, info_list):
@@ -111,7 +112,8 @@ if __name__ == '__main__':
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
-                             'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
+                             'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols),
+                             'explore/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
             '''
             # Logs
             logs.update({'archive/size': len(archive)})

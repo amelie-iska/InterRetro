@@ -104,13 +104,16 @@ class RetroEnv:
                 if node.is_root or not self.is_successful_subtree(node.parent):
                     if node.inbb == 0:
                         successful_subtrees.append(node)
-
+        
+        depth = max(n.depth for n in PreOrderIter(self.tree_mdp))
+        
         return (
             self.tree_mdp,
             successful_subtrees,
             {
                 'success': int(reward == 1),
-                'model_calls': t
+                'model_calls': t,
+                'depth': depth
             }
         )
 

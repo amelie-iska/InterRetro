@@ -54,7 +54,7 @@ class RetroRL:
         self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=5,
                                      beam_size=10, use_rxn_class=False)
 
-        self.value_fn = ValueGNN(node_dim=21, edge_dim=4, hidden_dim=64, num_layers=3)
+        self.value_fn = ValueGNN(node_dim=21, edge_dim=4, hidden_dim=64, num_layers=3).to(device=self.args.device)
         self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
 
     def fit_value(self, rxn_batch):
@@ -75,16 +75,16 @@ class RetroRL:
                     # Single reactant SMILES
                     val_single = self.value_fn(reacts)
                     react_values_list.append(val_single.squeeze())
-            react_values = torch.stack(react_values_list).unsqueeze(dim=-1)
+            react_values = torch.stack(react_values_list).to(device=self.args.device).unsqueeze(dim=-1)
 
             rewards_list = []
             for rwds in rewards:
                 rewards_list.append(int(len(rwds)==sum(rwds)))
-            rewards_tensor = torch.tensor(rewards_list).unsqueeze(dim=-1)
+            rewards_tensor = torch.tensor(rewards_list).to(device=self.args.device).unsqueeze(dim=-1)
 
             targets = 1 + (1 - rewards_tensor) * react_values
             targets = torch.clamp(targets, max=15.0)
-
+            
         loss = F.mse_loss(prod_values, targets)
         self.value_optim.zero_grad()
         loss.backward()
