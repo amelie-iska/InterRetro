@@ -5,6 +5,8 @@ import time
 import joblib
 import wandb
 
+import numpy as np
+
 from tqdm import tqdm
 from rdkit import Chem, RDLogger
 RDLogger.DisableLog('rdApp.*')
@@ -13,7 +15,7 @@ from replay_buffer import ReplayBuffer
 from trajectories import TrajectoryCreator
 from runners import ParallelRunner
 from agent import RetroRL
-from retrorl_utils import set_seeds, create_exp, minicut
+from retrorl_utils import set_seeds, create_exp, minicut, plot_value_estimation
 from config_parser import get_args
 
 if __name__ == '__main__':
@@ -106,15 +108,32 @@ if __name__ == '__main__':
                 runner.synchronise_models(agent.graph2edits.state_dict())
 
             # Evaluation
-            '''
             if it % args.eval_interval == 0:
+                
+                eval_value_mols = [tree.id for tree in tree_list]
+                estimated_steps = agent.value_fn.forward_with_smiles(eval_value_mols).detach().to(device='cpu').squeeze().numpy()
+                real_steps = np.array([info['depth'] for info in info_list])
+                value_metrics = plot_value_estimation(estimated_steps, real_steps, epoch=epoch,
+                                                      save_path=f'{exp_folder}/figures/value_fn_train{epoch}-{it}.png')
+                for metrics, value in value_metrics.items():
+                    logs.update({'evaluation/train_' + metrics: value})
+                
                 start_time = time.time()
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
+                
+                eval_value_mols = [tree.id for tree in tree_list]
+                estimated_steps = agent.value_fn.forward_with_smiles(eval_value_mols).detach().to(device='cpu').squeeze().numpy()
+                real_steps = np.array([info['depth'] for info in info_list])
+                value_metrics = plot_value_estimation(estimated_steps, real_steps, epoch=epoch, 
+                                                      save_path=f'{exp_folder}/figures/value_fn_eval{epoch}-{it}.png')
+                for metrics, value in value_metrics.items():
+                    logs.update({'evaluation/eval_' + metrics: value})
+                
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols),
-                             'explore/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
-            '''
+                             'evaluation/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
+            
             # Logs
             logs.update({'archive/size': len(archive)})
             if it != total_iterations - 1:

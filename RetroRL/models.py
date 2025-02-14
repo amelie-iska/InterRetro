@@ -1,10 +1,16 @@
 from typing import Dict, List, Tuple, Union
 
+import os
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from Graph2Edits.prepare_data import apply_edit_to_mol
+
 from rdkit import Chem
+
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, parent_dir)
+from Graph2Edits.prepare_data import apply_edit_to_mol
 from Graph2Edits.utils.collate_fn import get_batch_graphs
 from Graph2Edits.utils.rxn_graphs import MolGraph, Vocab
 
