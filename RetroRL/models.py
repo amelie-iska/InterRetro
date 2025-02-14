@@ -1,174 +1,133 @@
-import torch
-from torch_geometric.data import Data, Batch
-from rdkit import Chem
-
+from typing import Dict, List, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GINConv, global_mean_pool
-# or GCNConv, GraphConv, etc.
+from Graph2Edits.prepare_data import apply_edit_to_mol
+from rdkit import Chem
+from Graph2Edits.utils.collate_fn import get_batch_graphs
+from Graph2Edits.utils.rxn_graphs import MolGraph, Vocab
 
-class ValueGNN(nn.Module):
-    """
-    A model that handles a *batch* of SMILES at once.
-    1) Each SMILES -> subgraph
-    2) We combine them into a single PyG Batch
-    3) GNN forward pass
-    4) Global pooling => [batch_size, hidden_dim]
-    5) MLP => [batch_size, 1] regression output
-    """
+from Graph2Edits.models.encoder import Global_Attention, MPNEncoder
+from Graph2Edits.models.model_utils import (creat_edits_feats, index_select_ND,
+                                            unbatch_feats)
 
+
+class DMPNNValue(nn.Module):
     def __init__(self,
-                 node_dim: int = 21,   # dimension from featurize_atom
-                 edge_dim: int = 4,    # dimension from featurize_bond
-                 hidden_dim: int = 64,
-                 num_layers: int = 3,
-                 mlp_hidden_dim: int = 128,
-                 dropout: float = 0.1):
-        super(ValueGNN, self).__init__()
+                 config: Dict,
+                 atom_vocab: Vocab,
+                 bond_vocab: Vocab,
+                 device: str = 'cpu') -> None:
+        """
+        Parameters
+        ----------
+        config: Dict, Model arguments
+        atom_vocab: atom and LG edit labels
+        bond_vocab: bond edit labels
+        device: str, Device to run the model on.
+        """
+        super(DMPNNValue, self).__init__()
 
-        self.node_dim = node_dim
-        self.edge_dim = edge_dim
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
+        self.config = config
+        self.atom_vocab = atom_vocab
+        self.bond_vocab = bond_vocab
+        self.atom_outdim = len(atom_vocab)
+        self.bond_outdim = len(bond_vocab)
+        self.device = device
 
-        # Build GIN layers
-        self.convs = nn.ModuleList()
-        for i in range(num_layers):
-            # GIN needs an MLP for "update"
-            gin_mlp = nn.Sequential(
-                nn.Linear(hidden_dim if i>0 else node_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim)
-            )
-            conv = GINConv(nn=gin_mlp)
-            self.convs.append(conv)
+        self._build_layers()
 
-        # Final feed-forward
-        self.head = nn.Sequential(
-            nn.Linear(hidden_dim, mlp_hidden_dim),
+    def _build_layers(self) -> None:
+        """Builds the different layers associated with the model."""
+        config = self.config
+        self.encoder = MPNEncoder(atom_fdim=config['n_atom_feat'],
+                                  bond_fdim=config['n_bond_feat'],
+                                  hidden_size=config['mpn_size'],
+                                  depth=config['depth'],
+                                  dropout=config['dropout_mpn'],
+                                  atom_message=config['atom_message'])
+
+        self.W_vv = nn.Linear(config['mpn_size'],
+                              config['mpn_size'], bias=False)
+        nn.init.eye_(self.W_vv.weight)
+        self.W_vc = nn.Linear(config['mpn_size'],
+                              config['mpn_size'], bias=False)
+
+        if config['use_attn']:
+            self.attn = Global_Attention(
+                d_model=config['mpn_size'], heads=config['n_heads'])
+
+        self.atom_linear = nn.Sequential(
+            nn.Linear(config['mpn_size'], config['mlp_size']),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(mlp_hidden_dim, 1)  # single scalar
-        )
+            nn.Dropout(p=config['dropout_mlp']),
+            nn.Linear(config['mlp_size'], self.atom_outdim))
+        self.bond_linear = nn.Sequential(
+            nn.Linear(config['mpn_size'] * 2, config['mlp_size']),
+            nn.ReLU(),
+            nn.Dropout(p=config['dropout_mlp']),
+            nn.Linear(config['mlp_size'], self.bond_outdim))
 
-    def forward(self, smiles_list):
+        self.graph_linear = nn.Sequential(
+            nn.Linear(config['mpn_size'], config['mlp_size']),
+            nn.ReLU(),
+            nn.Dropout(p=config['dropout_mlp']),
+            nn.Linear(config['mlp_size'], 1))
+
+    def to_device(self, tensors: Union[List, torch.Tensor]) -> Union[List, torch.Tensor]:
+        """Converts all inputs to the device used.
+
+        Parameters
+        ----------
+        tensors: Union[List, torch.Tensor],
+            Tensors to convert to model device. The tensors can be either a
+            single tensor or an iterable of tensors.
         """
-        smiles_list: List[str] of length B (batch size)
-        Returns: tensor of shape [B, 1] with regression values.
-        """
-        # 1) Convert SMILES -> PyG Batch
-        batch_data = smiles_to_pyg_batch(smiles_list)  # merges them
-        device = next(self.parameters()).device
-        batch_data = batch_data.to(device)
-
-        # 2) GNN forward
-        x, edge_index, edge_attr, batch = (batch_data.x,
-                                           batch_data.edge_index,
-                                           batch_data.edge_attr,
-                                           batch_data.batch)
-
-        # x: [total_nodes, node_dim]
-        # batch: [total_nodes], each entry is which graph in the batch the node belongs to
-
-        h = x
-        for i, conv_layer in enumerate(self.convs):
-            h = conv_layer(h, edge_index)  # ignoring edge_attr for simplicity
-            h = F.relu(h)
-
-        # 3) Global Pooling => [batch_size, hidden_dim]
-        graph_embed = global_mean_pool(h, batch)
-
-        # 4) MLP => [batch_size, 1]
-        out = self.head(graph_embed)
-        return out  # shape [batch_size, 1]
-
-
-def featurize_atom(atom: Chem.Atom) -> torch.Tensor:
-    """
-    Example: one-hot atomic number up to 20 + is_aromatic => 21D (or 22D).
-    Adjust as you see fit.
-    """
-    max_num = 20
-    atomic_num = atom.GetAtomicNum()
-    atomic_num = min(atomic_num, max_num)
-    one_hot = [0]*max_num
-    if atomic_num > 0:
-        one_hot[atomic_num-1] = 1
-    is_aromatic = 1 if atom.GetIsAromatic() else 0
-    feats = torch.tensor(one_hot + [is_aromatic], dtype=torch.float)
-    return feats
-
-def featurize_bond(bond: Chem.Bond) -> torch.Tensor:
-    """
-    4D bond feature: single/double/triple/aromatic.
-    """
-    from rdkit import Chem
-    bt = bond.GetBondType()
-    if bt == Chem.BondType.SINGLE:
-        return torch.tensor([1, 0, 0, 0], dtype=torch.float)
-    elif bt == Chem.BondType.DOUBLE:
-        return torch.tensor([0, 1, 0, 0], dtype=torch.float)
-    elif bt == Chem.BondType.TRIPLE:
-        return torch.tensor([0, 0, 1, 0], dtype=torch.float)
-    elif bond.GetIsAromatic():
-        return torch.tensor([0, 0, 0, 1], dtype=torch.float)
-    else:
-        return torch.tensor([1, 0, 0, 0], dtype=torch.float)  # fallback
-
-def mol_to_pyg_data(mol: Chem.Mol) -> Data:
-    """
-    Convert an RDKit Mol into a PyG Data object with:
-      - x: node features (shape [num_atoms, node_dim])
-      - edge_index: [2, num_edges]
-      - edge_attr: [num_edges, edge_dim]
-    """
-    # Build node features
-    atom_feats_list = [featurize_atom(atom) for atom in mol.GetAtoms()]
-    if len(atom_feats_list) == 0:
-        # Empty => return dummy
-        return Data(x=torch.zeros((0,)), edge_index=torch.zeros((2,0),dtype=torch.long))
-    x = torch.stack(atom_feats_list, dim=0)  # [num_atoms, node_dim]
-
-    # Build edges
-    edges = []
-    edge_feats_list = []
-    for bond in mol.GetBonds():
-        a1 = bond.GetBeginAtomIdx()
-        a2 = bond.GetEndAtomIdx()
-        edges.append((a1, a2))
-        edges.append((a2, a1))
-        bf = featurize_bond(bond)
-        edge_feats_list.append(bf)
-        edge_feats_list.append(bf)
-    if len(edges) == 0:
-        edge_index = torch.zeros((2,0), dtype=torch.long)
-        edge_attr = torch.zeros((0,4), dtype=torch.float)
-    else:
-        edge_index = torch.tensor(edges, dtype=torch.long).t()  # shape [2, E]
-        edge_attr = torch.stack(edge_feats_list, dim=0)         # shape [E, 4]
-
-    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
-
-def smiles_to_pyg_batch(smiles_list):
-    """
-    Takes a list of SMILES and returns a PyG Batch object containing
-    all their graphs. Each element in the list becomes one subgraph
-    in the batch.
-    """
-    from rdkit import Chem
-
-    data_list = []
-    for smi in smiles_list:
-        mol = Chem.MolFromSmiles(smi)
-        if mol is None:
-            # Invalid => produce empty graph or skip
-            data = Data(x=torch.zeros((0,)), edge_index=torch.zeros((2,0),dtype=torch.long))
+        if isinstance(tensors, list) or isinstance(tensors, tuple):
+            tensors = [tensor.to(self.device, non_blocking=True)
+                       for tensor in tensors]
+            return tensors
+        elif isinstance(tensors, torch.Tensor):
+            return tensors.to(self.device, non_blocking=True)
         else:
-            data = mol_to_pyg_data(mol)
-        data_list.append(data)
+            raise ValueError(f"Tensors of type {type(tensors)} unsupported")
+            
+            
+    def forward(self, prod_tensors, prod_scopes):
+        
+        prod_tensors = self.to_device(prod_tensors)
+        atom_scope, bond_scope = prod_scopes
+        
+        a_feats = self.encoder(prod_tensors, mask=None)
+        atom_feats = F.relu(self.W_vc(a_feats))
+        graph_vecs = torch.stack(
+            [atom_feats[st: st + le].sum(dim=0) for st, le in atom_scope])
+        values = self.graph_linear(graph_vecs)
+        return values
 
-    # Merge into a single Batch
-    batch = Batch.from_data_list(data_list)
-    return batch
+    def forward_with_smiles(self, smiles_list):
+        product_mols = [Chem.MolFromSmiles(smi) for smi in smiles_list]
+        
+        for mol in product_mols:
+            Chem.Kekulize(mol)
+        
+        prod_graphs = [
+            MolGraph(mol=Chem.Mol(mol), rxn_class=None, use_rxn_class=False)
+            for mol in product_mols
+        ]
+        prod_tensors, prod_scopes = get_batch_graphs(prod_graphs, use_rxn_class=False)
+        values = self.forward(prod_tensors, prod_scopes)
+        return values
+
+    def get_saveables(self) -> Dict:
+        """
+        Return the attributes of model used for its construction. This is used
+        in restoring the model.
+        """
+        saveables = {}
+        saveables['config'] = self.config
+        saveables['atom_vocab'] = self.atom_vocab
+        saveables['bond_vocab'] = self.bond_vocab
+
+        return saveables

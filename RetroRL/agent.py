@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from rdkit import Chem
 
-from models import ValueGNN
+from models import DMPNNValue
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 from Graph2Edits.models import Graph2Edits, BeamSearch
@@ -54,7 +54,13 @@ class RetroRL:
         self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=5,
                                      beam_size=10, use_rxn_class=False)
 
-        self.value_fn = ValueGNN(node_dim=21, edge_dim=4, hidden_dim=64, num_layers=3).to(device=self.args.device)
+        # Prepare value function
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
+        config = checkpoint['saveables']
+        self.value_fn = DMPNNValue(**config, device=args.device)
+        self.value_fn.load_state_dict(checkpoint['state'])
+        self.value_fn.to(args.device)
+        self.value_fn.eval()
         self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
 
     def fit_value(self, rxn_batch):
@@ -62,18 +68,18 @@ class RetroRL:
         react_smiles = rxn_batch['next_obs']
         rewards = rxn_batch['rewards']
 
-        prod_values = self.value_fn(prod_smiles)
+        prod_values = self.value_fn.forward_with_smiles(prod_smiles)
         with torch.no_grad():
             react_values_list = []
             for reacts in react_smiles:
                 if len(reacts) > 1:
                     # Multiple reactant SMILES
-                    val_batch = self.value_fn(reacts)
+                    val_batch = self.value_fn.forward_with_smiles(reacts)
                     max_val = val_batch.max()
                     react_values_list.append(max_val)
                 else:
                     # Single reactant SMILES
-                    val_single = self.value_fn(reacts)
+                    val_single = self.value_fn.forward_with_smiles(reacts)
                     react_values_list.append(val_single.squeeze())
             react_values = torch.stack(react_values_list).to(device=self.args.device).unsqueeze(dim=-1)
 
