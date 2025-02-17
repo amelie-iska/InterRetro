@@ -5,8 +5,6 @@ import time
 import joblib
 import wandb
 
-import numpy as np
-
 from tqdm import tqdm
 from rdkit import Chem, RDLogger
 RDLogger.DisableLog('rdApp.*')
@@ -15,7 +13,7 @@ from replay_buffer import ReplayBuffer
 from trajectories import TrajectoryCreator
 from runners import ParallelRunner
 from agent import RetroRL
-from retrorl_utils import set_seeds, create_exp, minicut, plot_value_estimation
+from retrorl_utils import set_seeds, create_exp, minicut
 from config_parser import get_args
 
 if __name__ == '__main__':
@@ -35,8 +33,7 @@ if __name__ == '__main__':
         json.dump(args.__dict__, f, indent=4)
     if args.enable_wandb:
         wandb.init(project=args.project, config=args, group=args.group, name='{}_seed{}'.format(args.group, args.seed))
-    
-    # Molecules for training
+        
     routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun_rate)
     logging.info(f"{len(routes)} training routes have been loaded.")
     target_mols = []
@@ -47,7 +44,6 @@ if __name__ == '__main__':
     target_mols = list(set(target_mols))
     logging.info(f"{len(target_mols)} target molecules are loaded after removing duplicates. ")
     
-    # Molecules for evaluation
     eval_routes = pickle.load(open(args.eval_routes, 'rb'))
     logging.info(f"{len(eval_routes)} evaluation routes have been loaded.")
     eval_mols = []
@@ -64,7 +60,6 @@ if __name__ == '__main__':
     runner = ParallelRunner(args)
     runner.synchronise_models(agent.graph2edits.state_dict())
     logging.info("Training starts ...")
-
     for epoch in range(args.epochs):
         archive = set(target_mols)
         total_iterations = 2 * int(len(archive) / args.explore_batch_size)
@@ -83,8 +78,7 @@ if __name__ == '__main__':
             end_time = time.time()
             logs.update({'explore/elapsed_time': end_time - start_time,
                          'explore/valid_percentage': len(tree_list) / len(mols),
-                         'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list),
-                         'explore/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
+                         'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
             
             # Memorise  
             for tree, succ_subtrees, info in zip(tree_list, succ_subtrees_list, info_list):
@@ -101,39 +95,18 @@ if __name__ == '__main__':
             if len(buffer) > 5 * args.training_batch_size:
                 for _ in range(args.update_frequency):
                     rxn_batch = buffer.sample(args.training_batch_size)
-                    policy_logs = agent.fit_policy(rxn_batch)
-                    value_logs = agent.fit_value(rxn_batch)
-                    logs.update(policy_logs)
-                    logs.update(value_logs)
+                    fit_logs = agent.fit(rxn_batch)
+                    logs.update(fit_logs)
                 runner.synchronise_models(agent.graph2edits.state_dict())
-
+            
             # Evaluation
             if it % args.eval_interval == 0:
-                
-                eval_value_mols = [tree.id for tree in tree_list]
-                estimated_steps = agent.value_fn.forward_with_smiles(eval_value_mols).detach().to(device='cpu').squeeze().numpy()
-                real_steps = np.array([info['depth'] for info in info_list])
-                value_metrics = plot_value_estimation(estimated_steps, real_steps, epoch=epoch,
-                                                      save_path=f'{exp_folder}/figures/value_fn_train{epoch}-{it}.png')
-                for metrics, value in value_metrics.items():
-                    logs.update({'evaluation/train_' + metrics: value})
-                
                 start_time = time.time()
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
-                
-                eval_value_mols = [tree.id for tree in tree_list]
-                estimated_steps = agent.value_fn.forward_with_smiles(eval_value_mols).detach().to(device='cpu').squeeze().numpy()
-                real_steps = np.array([info['depth'] for info in info_list])
-                value_metrics = plot_value_estimation(estimated_steps, real_steps, epoch=epoch, 
-                                                      save_path=f'{exp_folder}/figures/value_fn_eval{epoch}-{it}.png')
-                for metrics, value in value_metrics.items():
-                    logs.update({'evaluation/eval_' + metrics: value})
-                
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
-                             'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols),
-                             'evaluation/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
-            
+                             'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
+
             # Logs
             logs.update({'archive/size': len(archive)})
             if it != total_iterations - 1:
@@ -141,7 +114,7 @@ if __name__ == '__main__':
                 if args.enable_wandb:
                     wandb.log({**logs})
 
-        joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
+        #joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
         
 
 
