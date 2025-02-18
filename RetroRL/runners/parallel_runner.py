@@ -1,16 +1,6 @@
-import os
-import numpy as np
 
-from alg import online_mcts
-from models import MLPModel, ValueMLP, PriorMLP
-from retrorl_utils import prepare_starting_molecules, smiles2array
-
-import torch
 import torch.multiprocessing as mp
 from multiprocessing import Manager
-from multiprocessing import Queue
-from time import sleep
-from viz_tree.mol_tree_to_paroutes_dict import mol_tree_to_paroutes_dict
 
 from runners.serial_runner import SerialRunner
 

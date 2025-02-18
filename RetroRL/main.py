@@ -95,8 +95,10 @@ if __name__ == '__main__':
             if len(buffer) > 5 * args.training_batch_size:
                 for _ in range(args.update_frequency):
                     rxn_batch = buffer.sample(args.training_batch_size)
-                    fit_logs = agent.fit(rxn_batch)
-                    logs.update(fit_logs)
+                    policy_logs = agent.fit_policy(rxn_batch)
+                    value_logs = agent.fit_value(rxn_batch)
+                    logs.update(policy_logs)
+                    logs.update(value_logs)
                 runner.synchronise_models(agent.graph2edits.state_dict())
             
             # Evaluation
@@ -105,7 +107,8 @@ if __name__ == '__main__':
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
-                             'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols)})
+                             'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols),
+                             'evaluation/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
 
             # Logs
             logs.update({'archive/size': len(archive)})

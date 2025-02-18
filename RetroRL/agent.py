@@ -13,23 +13,20 @@ import sys
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 
-from models import MLPModel, ActionRepresentation, ValueMLP, PriorMLP
-from retrorl_utils import smiles2array
+from models import DMPNNValue
 from Graph2Edits.models import Graph2Edits, BeamSearch
 from Graph2Edits.utils.generate_edits import generate_reaction_edits
 from Graph2Edits.utils.rxn_graphs import MolGraph, RxnGraph, Vocab
+
+from Graph2Edits.utils.mol_features import ATOM_FDIM, BOND_FDIM
 from Graph2Edits.utils.reaction_actions import (AddGroupAction, AtomEditAction,
                                                 BondEditAction, Termination)
-from Graph2Edits.utils.mol_features import ATOM_FDIM, BOND_FDIM
 
 from rxnmapper import RXNMapper
 
 from typing import Any, List, Tuple
 import sys
-from collections import Counter
 import joblib
-import pandas as pd
-from rdkit import Chem
 import os
 
 class RetroRL:
@@ -53,8 +50,53 @@ class RetroRL:
         # Load bream search
         self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=5,
                                      beam_size=10, use_rxn_class=False)
+        
+        # Prepare value function
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
+        config = checkpoint['saveables']
+        self.value_fn = DMPNNValue(**config, device=args.device)
+        self.value_fn.load_state_dict(checkpoint['state'])
+        self.value_fn.to(args.device)
+        self.value_fn.eval()
+        self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
     
-    def fit(self, rxn_batch):
+    def fit_value(self, rxn_batch):
+        prod_smiles = rxn_batch['obs']
+        react_smiles = rxn_batch['next_obs']
+        rewards = rxn_batch['rewards']
+        
+        prod_values = self.value_fn.forward_with_smiles(prod_smiles)
+        with torch.no_grad():
+            react_values_list = []
+            for reacts in react_smiles:
+                if len(reacts) > 1:
+                    # Multiple reactant SMILES
+                    val_batch = self.value_fn.forward_with_smiles(reacts)
+                    max_val = val_batch.max()
+                    react_values_list.append(max_val)
+                else:
+                    # Single reactant SMILES
+                    val_single = self.value_fn.forward_with_smiles(reacts)
+                    react_values_list.append(val_single.squeeze())
+            react_values = torch.stack(react_values_list).to(device=self.args.device).unsqueeze(dim=-1)
+        
+            rewards_list = []
+            for rwds in rewards:
+                rewards_list.append(int(len(rwds)==sum(rwds)))
+            rewards_tensor = torch.tensor(rewards_list).to(device=self.args.device).unsqueeze(dim=-1)
+        
+            targets = 1 + (1 - rewards_tensor) * react_values
+            targets = torch.clamp(targets, max=15.0)
+            
+        loss = F.mse_loss(prod_values, targets)
+        self.value_optim.zero_grad()
+        loss.backward()
+        self.value_optim.step()
+        
+        return {'value_fn/training_loss': loss.item(),
+                'value_fn/target': targets.mean().item()}
+    
+    def fit_policy(self, rxn_batch):
         batch_graphs = rxn_batch['graphs']
         graph_seq_tensors, seq_labels, seq_mask = self.process_batch(batch_graphs)
         
