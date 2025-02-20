@@ -109,7 +109,7 @@ if __name__ == '__main__':
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols),
                              'evaluation/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
-
+                
             # Logs
             logs.update({'archive/size': len(archive)})
             if it != total_iterations - 1:
