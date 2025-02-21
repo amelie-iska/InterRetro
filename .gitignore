@@ -1,5 +1,7 @@
 experiments/
 dataset/
+one_step_model/
+saved_models/
 .virtual_documents/
 wandb/
 .idea/

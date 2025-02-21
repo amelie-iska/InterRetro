@@ -58,7 +58,31 @@ class RetroRL:
         self.value_fn.to(args.device)
         self.value_fn.eval()
         self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
-    
+
+    def run(self, p_smi, topk=10):
+        p_smi = self.canonicalize(p_smi)
+        mol = Chem.MolFromSmiles(p_smi)
+        for i, atom in enumerate(mol.GetAtoms(), start=1):
+            atom.SetAtomMapNum(i)
+        labeled_smi = Chem.MolToSmiles(mol)
+        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=10, rxn_class=False)
+
+        all_reactants = []
+        all_edits = []
+        for res in top_k_results:
+            if not res['final_smi'].startswith('final_smi_unmapped'):
+                unlabelled_smi = self.canonicalize(res['final_smi'])
+                all_reactants.append(unlabelled_smi)
+
+                edit_seq_with_params = []
+                for action, atom_or_atoms in zip(res['edits'], res['edits_atom']):
+                    edit_seq_with_params.append((action, atom_or_atoms))
+                edit_seq_with_params.append(('Terminate', None))
+                all_edits.append(edit_seq_with_params)
+        return {'reactants': all_reactants[:1],
+                'scores': [1 for i in range(len(all_reactants))][:1],
+                'template': all_edits[:1]}
+
     def compute_react_values(self, react_smiles):
         react_values_list = []
         for reacts in react_smiles:

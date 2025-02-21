@@ -13,12 +13,11 @@ from replay_buffer import ReplayBuffer
 from trajectories import TrajectoryCreator
 from runners import ParallelRunner
 from agent import RetroRL
-from retrorl_utils import set_seeds, create_exp, minicut, get_device
+from retrorl_utils import set_seeds, create_exp, minicut
 from config_parser import get_args
 
 if __name__ == '__main__':
     args = get_args()
-    args.device = get_device(args.device)
     args.seed = set_seeds(args.seed)
     exp_folder = create_exp(args.seed, args.group)
     logging.basicConfig(

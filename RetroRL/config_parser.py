@@ -1,5 +1,7 @@
 import argparse
 
+from retrorl_utils import get_device
+
 def get_args():
     parser = argparse.ArgumentParser()
 
@@ -30,5 +32,7 @@ def get_args():
     parser.add_argument('--atom_vocab_file', type=str, default='../Graph2Edits/data/uspto_50k/train/atom_lg_vocab.txt')
     
     args = parser.parse_args()
-    
+
+    args.device = get_device(args.device)
+
     return args
