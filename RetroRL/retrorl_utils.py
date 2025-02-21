@@ -2,6 +2,7 @@ import os
 import torch
 import random
 import pickle
+import platform
 import pandas as pd
 import numpy as np
 
@@ -43,8 +44,10 @@ def set_seeds(seed):
     random.seed(seed)
     return seed
 
-def get_device():
-    return "cuda" if torch.cuda.is_available() else "cpu"
+def get_device(device):
+    if platform.system() == "Darwin":  # macOS
+        return "cpu"
+    return device if torch.cuda.is_available() else "cpu"
 
 def create_exp(seed, group):
     base_dir = 'experiments'

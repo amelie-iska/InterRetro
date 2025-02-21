@@ -13,11 +13,12 @@ from replay_buffer import ReplayBuffer
 from trajectories import TrajectoryCreator
 from runners import ParallelRunner
 from agent import RetroRL
-from retrorl_utils import set_seeds, create_exp, minicut
+from retrorl_utils import set_seeds, create_exp, minicut, get_device
 from config_parser import get_args
 
 if __name__ == '__main__':
     args = get_args()
+    args.device = get_device(args.device)
     args.seed = set_seeds(args.seed)
     exp_folder = create_exp(args.seed, args.group)
     logging.basicConfig(
@@ -102,7 +103,7 @@ if __name__ == '__main__':
                 runner.synchronise_models(agent.graph2edits.state_dict())
             
             # Evaluation
-            if it % args.eval_interval == 0:
+            if it % args.eval_interval == 0 and args.enable_eval:
                 start_time = time.time()
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
