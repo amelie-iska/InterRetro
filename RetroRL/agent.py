@@ -65,7 +65,7 @@ class RetroRL:
         for i, atom in enumerate(mol.GetAtoms(), start=1):
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
-        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=10, rxn_class=False)
+        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=max(10, topk), rxn_class=False)
 
         all_reactants = []
         all_edits = []
@@ -79,9 +79,9 @@ class RetroRL:
                     edit_seq_with_params.append((action, atom_or_atoms))
                 edit_seq_with_params.append(('Terminate', None))
                 all_edits.append(edit_seq_with_params)
-        return {'reactants': all_reactants[:1],
-                'scores': [1 for i in range(len(all_reactants))][:1],
-                'template': all_edits[:1]}
+        return {'reactants': all_reactants[:topk],
+                'scores': [1 for i in range(len(all_reactants))][:topk],
+                'template': all_edits[:topk]}
 
     def compute_react_values(self, react_smiles):
         react_values_list = []

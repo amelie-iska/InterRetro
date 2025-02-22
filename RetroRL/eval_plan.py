@@ -16,14 +16,12 @@ dirpath = os.path.dirname(os.path.abspath(__file__))
 
 class RSPlanner:
     def __init__(self,
-                 agent,
+                 one_step,
                  gpu=-1,
                  expansion_topk=50,
                  iterations=500,
                  use_value_fn=False,
                  starting_molecules=dirpath+'/dataset/origin_dict.csv',
-                 mlp_templates=dirpath+'/one_step_model/template_rules_1.dat',
-                 mlp_model_dump=dirpath+'/one_step_model/saved_rollout_state_1_2048.ckpt',
                  save_folder=dirpath+'/saved_models',
                  value_model='best_epoch_final_4.pt',
                  fp_dim=2048,
@@ -34,7 +32,6 @@ class RSPlanner:
         device = 'cpu'
         starting_mols = prepare_starting_molecules(starting_molecules)
 
-        # one_step = prepare_mlp(mlp_templates, mlp_model_dump)
 
         if use_value_fn:
             model = ValueMLP(
@@ -58,7 +55,7 @@ class RSPlanner:
             value_fn = lambda x: 0.
 
         self.plan_handle = prepare_molstar_planner(
-            one_step=agent,
+            one_step=one_step,
             value_fn=value_fn,
             starting_mols=starting_mols,
             expansion_topk=expansion_topk,
@@ -83,16 +80,21 @@ class RSPlanner:
             return result
 
         else:
-            logging.info('Synthesis path for %s not found. Please try increasing '
-                         'the number of iterations.' % target_mol)
+            # logging.info('Synthesis path for %s not found. Please try increasing the number of iterations.' % target_mol)
             return None
 
 
 if __name__ == '__main__':
     from config_parser import get_args
-    from agent import RetroRL
     args = get_args()
-    agent = RetroRL(args)
+    one_step_algo = 'Graph2Edits'
+
+    if one_step_algo == 'Graph2Edits':
+        from agent import RetroRL
+        one_step = RetroRL(args)
+    elif one_step_algo == 'Template':
+        one_step = prepare_mlp(dirpath+'/one_step_model/template_rules_1.dat',
+                               dirpath+'/one_step_model/saved_rollout_state_1_2048.ckpt')
 
     eval_routes = pickle.load(open(args.eval_routes, 'rb'))
     print(f"{len(eval_routes)} evaluation routes have been loaded.")
@@ -104,16 +106,13 @@ if __name__ == '__main__':
     print(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
 
     planner = RSPlanner(
-        agent=agent,
+        one_step=one_step,
         gpu=0,
         use_value_fn=False,
-        iterations=20,
-        expansion_topk=1
+        iterations=100,
+        expansion_topk=50
     )
-    '''
-    result = planner.plan('CCCC[C@@H](C(=O)N1CCC[C@H]1C(=O)O)[C@@H](F)C(=O)OC')
-    print(result)
-    '''
+
     logs = {'successes': []}
     for mol in tqdm(eval_mols):
         result = planner.plan(mol)
