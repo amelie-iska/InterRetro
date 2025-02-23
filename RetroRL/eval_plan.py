@@ -109,7 +109,7 @@ if __name__ == '__main__':
         one_step=one_step,
         gpu=0,
         use_value_fn=False,
-        iterations=100,
+        iterations=200,
         expansion_topk=50
     )
 

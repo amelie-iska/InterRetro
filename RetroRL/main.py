@@ -56,7 +56,7 @@ if __name__ == '__main__':
     agent = RetroRL(args)
     buffer = ReplayBuffer(capacity=args.buffer_capacity, agent=agent)
     traj_creator = TrajectoryCreator(agent)
-    
+
     runner = ParallelRunner(args)
     runner.synchronise_models(agent.graph2edits.state_dict())
     logging.info("Training starts ...")
@@ -71,6 +71,7 @@ if __name__ == '__main__':
             for i in range(args.explore_batch_size):
                 if len(archive) == 0: break
                 mols.append(archive.pop())
+            if len(mols) == 0: break
             
             # Explore
             start_time = time.time()
@@ -117,13 +118,6 @@ if __name__ == '__main__':
                 if args.enable_wandb:
                     wandb.log({**logs})
 
-        #joblib.dump([agent, buffer], f'{exp_folder}/models_epoch{epoch}.pkl')
+        joblib.dump([agent.graph2edits.state_dict(), agent.value_fn.state_dict()],
+                    f'{exp_folder}/models_epoch{epoch}.pkl')
         
-
-
-
-
-
-
-
-

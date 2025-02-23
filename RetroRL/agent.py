@@ -59,71 +59,76 @@ class RetroRL:
         self.value_fn.eval()
         self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
 
-    def run(self, p_smi, topk=10):
-        p_smi = self.canonicalize(p_smi)
-        mol = Chem.MolFromSmiles(p_smi)
-        for i, atom in enumerate(mol.GetAtoms(), start=1):
-            atom.SetAtomMapNum(i)
-        labeled_smi = Chem.MolToSmiles(mol)
-        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=max(10, topk), rxn_class=False)
+        def run(self, p_smi, topk=10):
+            p_smi = self.canonicalize(p_smi)
+            mol = Chem.MolFromSmiles(p_smi)
+            for i, atom in enumerate(mol.GetAtoms(), start=1):
+                atom.SetAtomMapNum(i)
+            labeled_smi = Chem.MolToSmiles(mol)
+            top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=max(10, topk), rxn_class=False)
 
-        all_reactants = []
-        all_edits = []
-        for res in top_k_results:
-            if not res['final_smi'].startswith('final_smi_unmapped'):
-                unlabelled_smi = self.canonicalize(res['final_smi'])
-                all_reactants.append(unlabelled_smi)
+            all_reactants = []
+            all_edits = []
+            for res in top_k_results:
+                if not res['final_smi'].startswith('final_smi_unmapped'):
+                    unlabelled_smi = self.canonicalize(res['final_smi'])
+                    all_reactants.append(unlabelled_smi)
 
-                edit_seq_with_params = []
-                for action, atom_or_atoms in zip(res['edits'], res['edits_atom']):
-                    edit_seq_with_params.append((action, atom_or_atoms))
-                edit_seq_with_params.append(('Terminate', None))
-                all_edits.append(edit_seq_with_params)
-        return {'reactants': all_reactants[:topk],
-                'scores': [1 for i in range(len(all_reactants))][:topk],
-                'template': all_edits[:topk]}
+                    edit_seq_with_params = []
+                    for action, atom_or_atoms in zip(res['edits'], res['edits_atom']):
+                        edit_seq_with_params.append((action, atom_or_atoms))
+                    edit_seq_with_params.append(('Terminate', None))
+                    all_edits.append(edit_seq_with_params)
+            return {'reactants': all_reactants[:topk],
+                    'scores': [1 for i in range(len(all_reactants))][:topk],
+                    'template': all_edits[:topk]}
 
-    def compute_react_values(self, react_smiles):
-        react_values_list = []
-        for reacts in react_smiles:
-            if len(reacts) > 1:
-                # Multiple reactant SMILES
-                val_batch = self.value_fn.forward_with_smiles(reacts)
-                max_val = val_batch.max()
-                react_values_list.append(max_val)
-            else:
-                # Single reactant SMILES
-                val_single = self.value_fn.forward_with_smiles(reacts)
-                react_values_list.append(val_single.squeeze())
-        react_values = torch.stack(react_values_list).to(device=self.args.device).unsqueeze(dim=-1)
-        return react_values
-    
-    
-    def fit_value(self, rxn_batch):
-        prod_smiles = rxn_batch['obs']
-        react_smiles = rxn_batch['next_obs']
-        rewards = rxn_batch['rewards']
-        
-        prod_values = self.value_fn.forward_with_smiles(prod_smiles)
-        with torch.no_grad():
-            react_values = self.compute_react_values(react_smiles)
-            
-            rewards_list = []
-            for rwds in rewards:
-                rewards_list.append(int(len(rwds)==sum(rwds)))
-            rewards_tensor = torch.tensor(rewards_list).to(device=self.args.device).unsqueeze(dim=-1)
-        
-            targets = 1 + (1 - rewards_tensor) * react_values
-            targets = torch.clamp(targets, max=15.0)
-            
-        loss = F.mse_loss(prod_values, targets)
-        self.value_optim.zero_grad()
-        loss.backward()
-        self.value_optim.step()
-        
-        return {'value_fn/training_loss': loss.item(),
-                'value_fn/target': targets.mean().item()}
-    
+        def compute_react_values(self, react_smiles):
+            react_values_list = []
+            for reacts in react_smiles:
+                if len(reacts) > 1:
+                    # Multiple reactant SMILES
+                    val_batch = self.value_fn.forward_with_smiles(reacts)
+                    # max_val = val_batch.max()
+                    # react_values_list.append(max_val)
+                    min_val = val_batch.min()
+                    react_values_list.append(min_val)
+                else:
+                    # Single reactant SMILES
+                    val_single = self.value_fn.forward_with_smiles(reacts)
+                    react_values_list.append(val_single.squeeze())
+            react_values = torch.stack(react_values_list).to(device=self.args.device).unsqueeze(dim=-1)
+            return react_values
+
+        def fit_value(self, rxn_batch):
+            prod_smiles = rxn_batch['obs']
+            react_smiles = rxn_batch['next_obs']
+            rewards = rxn_batch['rewards']
+
+            prod_values = self.value_fn.forward_with_smiles(prod_smiles)
+            with torch.no_grad():
+                react_values = self.compute_react_values(react_smiles)
+
+                rewards_list = []
+                for rwds in rewards:
+                    rewards_list.append(int(len(rwds) == sum(rwds)))
+                rewards_tensor = torch.tensor(rewards_list).to(device=self.args.device).unsqueeze(dim=-1)
+
+                #targets = 1 + (1 - rewards_tensor) * react_values
+                #targets = torch.clamp(targets, max=15.0)
+
+                targets = rewards_tensor + 0.98 * (1 - rewards_tensor) * react_values
+                targets = torch.clamp(targets, min=0, max=1.0)
+
+            loss = F.mse_loss(prod_values, targets)
+            self.value_optim.zero_grad()
+            loss.backward()
+            self.value_optim.step()
+
+            return {'value_fn/training_loss': loss.item(),
+                    'value_fn/target': targets.mean().item()}
+
+
     def fit_policy(self, rxn_batch):
         
         # ----------------------------------------------------
