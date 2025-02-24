@@ -146,7 +146,8 @@ class RetroRL:
             advantage = advantage.squeeze(dim=-1)  # shape: (batch_size,)
             advantage = torch.clamp(advantage, min=-1, max=1)
 
-            weights = torch.exp(4 * advantage).detach()  # shape: (batch_size,)
+            weights = torch.exp(5 * advantage).detach()  # shape: (batch_size,)
+            weights = torch.clamp(weights, min=0, max=100).detach()
 
         # ----------------------------------------------------
         # 2) Forward pass through Graph2Edits to get predictions

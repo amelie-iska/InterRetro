@@ -77,6 +77,7 @@ if __name__ == '__main__':
             start_time = time.time()
             tree_list, succ_subtrees_list, info_list = runner.run(mols, test=False)
             end_time = time.time()
+            if len(info_list) == 0: continue
             logs.update({'explore/elapsed_time': end_time - start_time,
                          'explore/valid_percentage': len(tree_list) / len(mols),
                          'explore/success_rate': sum([info['success'] for info in info_list]) / len(info_list)})
