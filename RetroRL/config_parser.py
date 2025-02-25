@@ -13,10 +13,11 @@ def get_args():
     parser.add_argument('--group', type=str, default='RetroRL')
     parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
     parser.add_argument('--enable_eval', type=int, choices=[0, 1], default=1)
-    parser.add_argument('--minirun_rate',  type=int, choices=[0, 1], default=50)
+    parser.add_argument('--minirun_rate',  type=int, choices=[0, 1], default=20)
     
     parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--eval_interval', type=int, default=200)
+    parser.add_argument('--save_interval', type=int, default=1000)
     
     # One-step model
     parser.add_argument('--lr', type=float, default=1e-3)

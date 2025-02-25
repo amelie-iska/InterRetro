@@ -116,6 +116,13 @@ if __name__ == '__main__':
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols),
                              'evaluation/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
+            
+            # Save Models
+            if it % args.save_interval == 0:
+                torch.save({
+                    'graph2edits_state_dict': agent.graph2edits.state_dict(),
+                    'value_fn_state_dict': agent.value_fn.state_dict()
+                }, f'{exp_folder}/models_epoch{epoch}_it{it}.pth')
                 
             # Logs
             logs.update({'archive/size': len(archive)})
@@ -123,10 +130,4 @@ if __name__ == '__main__':
                 logging.info(f"Training Info ep {epoch} it {it}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
                 if args.enable_wandb:
                     wandb.log({**logs})
-        
-            torch.save({
-                'graph2edits_state_dict': agent.graph2edits.state_dict(),
-                'value_fn_state_dict': agent.value_fn.state_dict()
-            }, f'{exp_folder}/models_epoch{epoch}.pth')
-
         
