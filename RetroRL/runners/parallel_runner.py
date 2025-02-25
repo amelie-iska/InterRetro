@@ -1,4 +1,5 @@
 
+import os
 import torch.multiprocessing as mp
 from multiprocessing import Manager
 
@@ -6,7 +7,9 @@ from runners.serial_runner import SerialRunner
 
 mp.set_start_method('spawn', force=True)
 
-def worker(queue, remote, args):
+def worker(queue, remote, args, i):
+    gpu = i % args.n_gpus
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     local_runner = SerialRunner(args)
     while True:
         cmd = remote.recv()
@@ -43,7 +46,7 @@ class ParallelRunner:
 
         self.manager = Manager()
         self.queue = self.manager.Queue()
-        self.ps = [mp.Process(target=worker, args=(self.queue, self.worker_conns[i], args)) for i in range(self.n_processes)]
+        self.ps = [mp.Process(target=worker, args=(self.queue, self.worker_conns[i], args, i)) for i in range(self.n_processes)]
         
         for p in self.ps:
             p.daemon = True
