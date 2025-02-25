@@ -14,8 +14,8 @@ def get_args():
     parser.add_argument('--enable_eval', type=int, choices=[0, 1], default=1)
     parser.add_argument('--minirun_rate',  type=int, choices=[0, 1], default=50)
     
-    parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--eval_interval', type=int, default=250)
+    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--eval_interval', type=int, default=200)
     
     # One-step model
     parser.add_argument('--lr', type=float, default=1e-3)

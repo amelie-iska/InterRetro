@@ -2,8 +2,8 @@ import pickle
 import logging
 import json
 import time
-import joblib
 import wandb
+import torch
 
 from tqdm import tqdm
 from rdkit import Chem, RDLogger
@@ -118,7 +118,10 @@ if __name__ == '__main__':
                 logging.info(f"Training Info ep {epoch} it {it}\n" + "\n".join([f"{key}: {value:.4f}" for key, value in logs.items()]))
                 if args.enable_wandb:
                     wandb.log({**logs})
+        
+            torch.save({
+                'graph2edits_state_dict': agent.graph2edits.state_dict(),
+                'value_fn_state_dict': agent.value_fn.state_dict()
+            }, f'{exp_folder}/models_epoch{epoch}.pth')
 
-        joblib.dump([agent.graph2edits.state_dict(), agent.value_fn.state_dict()],
-                    f'{exp_folder}/models_epoch{epoch}.pkl')
         
