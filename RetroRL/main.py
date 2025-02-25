@@ -37,9 +37,14 @@ if __name__ == '__main__':
     routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun_rate)
     logging.info(f"{len(routes)} training routes have been loaded.")
     target_mols = []
-    for route in routes:
+    for route in tqdm(routes):
         for rxn in route:
-            target_mols.append(Chem.CanonSmiles(rxn.split('>')[0]))
+            try:
+                smi = rxn.split('>')[0]
+                target_mols.append(Chem.CanonSmiles(smi))
+            except Exception:
+                logging.warning(f'{smi} cannot be parsed.')
+                continue
     del routes
     target_mols = list(set(target_mols))
     logging.info(f"{len(target_mols)} target molecules are loaded after removing duplicates. ")
