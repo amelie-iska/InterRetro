@@ -64,9 +64,9 @@ class RSPlanner:
             viz_dir=viz_dir
         )
 
-    def plan(self, target_mol):
+    def plan(self, target_mol, target_mol_id):
         t0 = time.time()
-        succ, msg = self.plan_handle(target_mol)
+        succ, msg = self.plan_handle(target_mol, target_mol_id)
 
         if succ:
             result = {
@@ -87,14 +87,21 @@ class RSPlanner:
 if __name__ == '__main__':
     from config_parser import get_args
     args = get_args()
-    one_step_algo = 'Graph2Edits'
+    one_step_algo = 'finetuned_models'
 
     if one_step_algo == 'Graph2Edits':
         from agent import RetroRL
         one_step = RetroRL(args)
+    elif one_step_algo == 'finetuned_models':
+        from agent import RetroRL
+        one_step = RetroRL(args)
+        params = torch.load(args.finetuned_models, map_location='cpu')
+        one_step.load_state_dict(params['graph2edits_state_dict'])
     elif one_step_algo == 'Template':
         one_step = prepare_mlp(dirpath+'/one_step_model/template_rules_1.dat',
                                dirpath+'/one_step_model/saved_rollout_state_1_2048.ckpt')
+
+
 
     eval_routes = pickle.load(open(args.eval_routes, 'rb'))
     print(f"{len(eval_routes)} evaluation routes have been loaded.")
@@ -109,13 +116,16 @@ if __name__ == '__main__':
         one_step=one_step,
         gpu=0,
         use_value_fn=False,
-        iterations=200,
-        expansion_topk=50
+        iterations=20,
+        expansion_topk=1,
+        viz=False,
+        viz_dir='viz'
     )
 
+
     logs = {'successes': []}
-    for mol in tqdm(eval_mols):
-        result = planner.plan(mol)
+    for id, mol in enumerate(tqdm(eval_mols)):
+        result = planner.plan(mol, id)
         if result is not None:
             logs['successes'].append(int(result['succ']))
         else:
@@ -123,3 +133,4 @@ if __name__ == '__main__':
 
     print(logs)
     print(sum(logs['successes']) / len(logs['successes']))
+

@@ -30,6 +30,7 @@ def get_args():
     parser.add_argument('--eval_routes', type=str, default='../dataset/routes_possible_test_hard.pkl')
     parser.add_argument('--building_blocks_path', type=str, default='../dataset/origin_dict_canonical.csv')
     parser.add_argument('--graph2edits_model', type=str, default='../Graph2Edits/graph2edits_experiments/uspto_50k/without_rxn_class/27-06-2022--10-27-22/epoch_123.pt')
+    parser.add_argument('--finetuned_models', type=str, default='../finetuned_models/models_epoch1_it0.pth')
     parser.add_argument('--bond_vocab_file', type=str, default='../Graph2Edits/data/uspto_50k/train/bond_vocab.txt')
     parser.add_argument('--atom_vocab_file', type=str, default='../Graph2Edits/data/uspto_50k/train/atom_lg_vocab.txt')
     
