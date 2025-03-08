@@ -5,7 +5,7 @@ import logging
 import torch.multiprocessing as mp
 
 from env import RetroEnv
-from agent import RetroRL
+from agents import return_agent
 
 mp.set_start_method('spawn', force=True)
 
@@ -13,7 +13,7 @@ class SerialRunner:
     def __init__(self, args):
         self.args = args
         self.building_blocks = prepare_starting_molecules(args.building_blocks_path)
-        self.agent = RetroRL(args)
+        self.agent = return_agent(args)
         self.env = RetroEnv(building_blocks=self.building_blocks)
 
     

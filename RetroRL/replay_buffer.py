@@ -17,7 +17,7 @@ class ReplayBuffer:
         self.size = 0
         self.pos = 0
 
-    def add(self, obs, actions, next_obs, rewards, dones):
+    def add(self, obs, actions, next_obs, rewards, dones, remember_graph):
         idx = int(self.pos % self.capacity)
         self.buffer['obs'][idx] = obs
         self.buffer['actions'][idx] = actions
@@ -25,10 +25,11 @@ class ReplayBuffer:
         self.buffer['rewards'][idx] = rewards
         self.buffer['dones'][idx] = dones
         
-        reactant_string = '.'.join(next_obs)
-        graph_seq = self.agent.build_graph_seq(obs, reactant_string, actions)
-        if len(graph_seq) > 0:
-            self.buffer['graphs'][idx] = graph_seq
+        if remember_graph:
+            reactant_string = '.'.join(next_obs)
+            graph_seq = self.agent.build_graph_seq(obs, reactant_string, actions)
+            if len(graph_seq) > 0:
+                self.buffer['graphs'][idx] = graph_seq
         
         self.pos += 1
         self.size = int(min(self.size + 1, self.capacity))

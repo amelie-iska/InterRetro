@@ -28,7 +28,9 @@ import sys
 import joblib
 import os
 
-class RetroRL:
+from agents.base_agent import BaseAgent
+
+class Graph2EditsPolicy(BaseAgent):
     def __init__(self, args):
         self.args = args
         self.updates = 0
@@ -58,6 +60,9 @@ class RetroRL:
         self.value_fn.to(args.device)
         self.value_fn.eval()
         self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
+        
+        self.nn_models = {'policy': self.graph2edits,
+                          'value_fn': self.value_fn}
 
     def run(self, p_smi, topk=10):
         p_smi = self.canonicalize(p_smi)
@@ -403,9 +408,3 @@ class RetroRL:
         mol = Chem.RemoveHs(mol)
         [a.ClearProp('molAtomMapNumber') for a in mol.GetAtoms()]
         return Chem.MolToSmiles(mol)
-
-    def load_state_dict(self, state_dict):
-        self.graph2edits.to(device="cpu")
-        self.graph2edits.load_state_dict(state_dict)
-        self.graph2edits.to(device=self.args.device)
-

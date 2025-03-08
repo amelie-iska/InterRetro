@@ -12,9 +12,9 @@ RDLogger.DisableLog('rdApp.*')
 from replay_buffer import ReplayBuffer
 from trajectories import TrajectoryCreator
 from runners import ParallelRunner
-from agent import RetroRL
 from retrorl_utils import set_seeds, create_exp, minicut
 from config_parser import get_args
+from agents import return_agent
 
 if __name__ == '__main__':
     args = get_args()
@@ -58,12 +58,12 @@ if __name__ == '__main__':
     eval_mols = list(set(eval_mols))
     logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
     
-    agent = RetroRL(args)
+    agent = return_agent(args)
     buffer = ReplayBuffer(capacity=args.buffer_capacity, agent=agent)
     traj_creator = TrajectoryCreator(agent)
 
     runner = ParallelRunner(args)
-    runner.synchronise_models(agent.graph2edits.state_dict())
+    runner.synchronise_models(agent.get_state_dict())
     logging.info("Training starts ...")
     for epoch in range(args.epochs):
         archive = set(target_mols)
@@ -93,7 +93,7 @@ if __name__ == '__main__':
                     for subtree in succ_subtrees:
                        branches = traj_creator.extract_branches(subtree)
                        for branch in branches:
-                           buffer_logs = buffer.add(**branch)
+                           buffer_logs = buffer.add(**branch, remember_graph=args.agent.startswith('graph2edits'))
                            logs.update(buffer_logs)
                 if not info['success']: # Save to archive
                     archive.add(tree.id)
@@ -106,7 +106,7 @@ if __name__ == '__main__':
                     value_logs = agent.fit_value(rxn_batch)
                     logs.update(policy_logs)
                     logs.update(value_logs)
-                runner.synchronise_models(agent.graph2edits.state_dict())
+                runner.synchronise_models(agent.get_state_dict())
             
             # Evaluation
             if it % args.eval_interval == 0 and args.enable_eval:
@@ -119,11 +119,8 @@ if __name__ == '__main__':
             
             # Save Models
             if it % args.save_interval == 0:
-                torch.save({
-                    'graph2edits_state_dict': agent.graph2edits.state_dict(),
-                    'value_fn_state_dict': agent.value_fn.state_dict()
-                }, f'{exp_folder}/models_epoch{epoch}_it{it}.pth')
-                
+                torch.save(agent.get_state_dict(), f'{exp_folder}/models_epoch{epoch}_it{it}.pth')
+            
             # Logs
             logs.update({'archive/size': len(archive)})
             if it != total_iterations - 1:
