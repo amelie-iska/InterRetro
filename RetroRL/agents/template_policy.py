@@ -44,7 +44,7 @@ class TemplatePolicy:
         self.policy_optim = torch.optim.Adam(self.policy.net.parameters(), lr=args.lr)
         
         
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
         config = checkpoint['saveables']
         self.value_fn = DMPNNValue(**config, device=args.device)
         self.value_fn.load_state_dict(checkpoint['state'])
@@ -52,6 +52,15 @@ class TemplatePolicy:
         self.value_fn.eval()
         self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
 
+    def run(self, mol_node, topk=10, backward=True, sample_mode=None, test=False):
+        run_res = self.policy.run(mol_node, 
+                                  topk=topk, 
+                                  backward=backward, 
+                                  sample_mode=sample_mode, 
+                                  test=test)
+        return run_res
+                        
+                                  
     def compute_react_values(self, react_smiles):
         react_values_list = []
         for reacts in react_smiles:

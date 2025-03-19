@@ -1,10 +1,10 @@
 import torch
 import logging
 import time
-from retro_star.retro_star.common import prepare_starting_molecules, prepare_mlp, \
+from retro_star.common import prepare_starting_molecules, prepare_mlp, \
     prepare_molstar_planner, smiles_to_fp
-from retro_star.retro_star.model import ValueMLP
-from retro_star.retro_star.utils import setup_logger
+from retro_star.model import ValueMLP
+from retro_star.utils import setup_logger
 
 import pickle
 from rdkit import Chem
@@ -86,22 +86,10 @@ class RSPlanner:
 
 if __name__ == '__main__':
     from config_parser import get_args
+    from agents import return_agent
     args = get_args()
-    one_step_algo = 'finetuned_models'
-
-    if one_step_algo == 'Graph2Edits':
-        from agent import RetroRL
-        one_step = RetroRL(args)
-    elif one_step_algo == 'finetuned_models':
-        from agent import RetroRL
-        one_step = RetroRL(args)
-        params = torch.load(args.finetuned_models, map_location='cpu')
-        one_step.load_state_dict(params['graph2edits_state_dict'])
-    elif one_step_algo == 'Template':
-        one_step = prepare_mlp(dirpath+'/one_step_model/template_rules_1.dat',
-                               dirpath+'/one_step_model/saved_rollout_state_1_2048.ckpt')
-
-
+    one_step = return_agent(args)
+    eval_routes = '../dataset/routes_possible_test_hard.pkl'
 
     eval_routes = pickle.load(open(args.eval_routes, 'rb'))
     print(f"{len(eval_routes)} evaluation routes have been loaded.")
@@ -116,21 +104,23 @@ if __name__ == '__main__':
         one_step=one_step,
         gpu=0,
         use_value_fn=False,
-        iterations=20,
+        iterations=50,
         expansion_topk=1,
         viz=False,
         viz_dir='viz'
     )
 
 
-    logs = {'successes': []}
+    logs = {'successes': [], 'depth': []}
     for id, mol in enumerate(tqdm(eval_mols)):
         result = planner.plan(mol, id)
         if result is not None:
             logs['successes'].append(int(result['succ']))
+            logs['depth'].append(int(result['route_len']))
         else:
             logs['successes'].append(0)
 
     print(logs)
     print(sum(logs['successes']) / len(logs['successes']))
+    print(sum(logs['depth']) / len(logs['depth']))
 

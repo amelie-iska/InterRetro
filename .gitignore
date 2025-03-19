@@ -5,6 +5,7 @@ saved_models/
 .virtual_documents/
 wandb/
 .idea/
+retro_data/
 .DS_Store
 
 # Byte-compiled / optimized / DLL files

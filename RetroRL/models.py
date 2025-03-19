@@ -78,7 +78,7 @@ def load_model(state_path, template_rule_path,fp_dim=2048):
         idx2rule[idx] = rule
     rollout = RolloutPolicyNet(len(template_rules),fp_dim=fp_dim)
     
-    state_dict = torch.load(state_path, map_location='cpu', weights_only=False)
+    state_dict = torch.load(state_path, map_location='cpu')
     # Remove the 'module.' prefix if present (i.e., if it was saved using DataParallel)
     new_state_dict = {}
     for key in state_dict.keys():

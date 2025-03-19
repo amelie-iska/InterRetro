@@ -35,12 +35,12 @@ class Graph2EditsPolicy(BaseAgent):
         self.args = args
         self.updates = 0
         
-        self.rxn_mapper = RXNMapper()
+        #self.rxn_mapper = RXNMapper()
         self.bond_vocab = Vocab(joblib.load(self.args.bond_vocab_file))
         self.atom_vocab = Vocab(joblib.load(self.args.atom_vocab_file))
         
         # Load Graph2Edits
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
         config = checkpoint['saveables']
         self.graph2edits = Graph2Edits(**config, device=args.device)
         self.graph2edits.load_state_dict(checkpoint['state'])
@@ -53,7 +53,7 @@ class Graph2EditsPolicy(BaseAgent):
                                      beam_size=10, use_rxn_class=False)
         
         # Prepare value function
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
         config = checkpoint['saveables']
         self.value_fn = DMPNNValue(**config, device=args.device)
         self.value_fn.load_state_dict(checkpoint['state'])
@@ -86,7 +86,8 @@ class Graph2EditsPolicy(BaseAgent):
                 all_edits.append(edit_seq_with_params)
         return {'reactants': all_reactants[:topk],
                 'scores': [1 for i in range(len(all_reactants))][:topk],
-                'template': all_edits[:topk]}
+                'template': all_edits[:topk],
+                'scores_reference': [1 for i in range(len(all_reactants))][:topk]}
 
     def compute_react_values(self, react_smiles):
         react_values_list = []

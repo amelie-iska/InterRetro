@@ -5,7 +5,7 @@ from retrorl_utils import get_device
 def get_args():
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('--agent', type=str, default='graph2edits')
+    parser.add_argument('--agent', type=str, default='template')
     parser.add_argument('--device',  type=str, choices=['cuda', 'cpu'], default='cuda')
     parser.add_argument('--n_processes', type=int, default=4)
     parser.add_argument('--n_gpus', type=int, default=1)
