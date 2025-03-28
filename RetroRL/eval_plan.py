@@ -1,10 +1,16 @@
 import torch
 import logging
 import time
-from retro_star.common import prepare_starting_molecules, prepare_mlp, \
+
+import os
+import sys
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, parent_dir)
+
+from retro_star.retro_star.common import prepare_starting_molecules, prepare_mlp, \
     prepare_molstar_planner, smiles_to_fp
-from retro_star.model import ValueMLP
-from retro_star.utils import setup_logger
+from retro_star.retro_star.model import ValueMLP
+from retro_star.retro_star.utils import setup_logger
 
 import pickle
 from rdkit import Chem
@@ -83,12 +89,45 @@ class RSPlanner:
             # logging.info('Synthesis path for %s not found. Please try increasing the number of iterations.' % target_mol)
             return None
 
+from syntheseus import Molecule
+from syntheseus.reaction_prediction.inference import (
+     LocalRetroModel, Graph2EditsModel, ChemformerModel, MEGANModel)
+class OneStep:
+    
+    def __init__(self, model_name):
+        if model_name == 'LocalRetroModel':
+            self.model = LocalRetroModel()
+        elif model_name == 'Graph2EditsModel':
+            self.model = Graph2EditsModel()
+        elif model_name == 'ChemformerModel':
+            self.model = ChemformerModel()
+        elif model_name == 'MEGANModel':
+            self.model = MEGANModel()
+        else:
+            raise Exception(f'{model_name} does not exist.')
+    
+    def mols_to_str(self, mols) -> str:
+        return ".".join([mol.smiles for mol in mols])
+    
+    def run(self, p_smi, topk=10):
+        test_mol = Molecule(p_smi)
+        [results] = self.model([test_mol], num_results=max(10, topk))
+        
+        all_reactants = []
+        for idx, prediction in enumerate(results):
+            all_reactants.append(self.mols_to_str(prediction.reactants))
+        return {'reactants': all_reactants[:topk],
+                'scores': [1 for i in range(len(all_reactants))][:topk],
+                'template': [1 for i in range(len(all_reactants))][:topk],
+                'scores_reference': [1 for i in range(len(all_reactants))][:topk]}
+
 
 if __name__ == '__main__':
     from config_parser import get_args
     from agents import return_agent
     args = get_args()
-    one_step = return_agent(args)
+    # one_step = return_agent(args)
+    one_step = OneStep('MEGANModel')
     eval_routes = '../dataset/routes_possible_test_hard.pkl'
 
     eval_routes = pickle.load(open(args.eval_routes, 'rb'))
@@ -104,8 +143,8 @@ if __name__ == '__main__':
         one_step=one_step,
         gpu=0,
         use_value_fn=False,
-        iterations=50,
-        expansion_topk=1,
+        iterations=100,
+        expansion_topk=50,
         viz=False,
         viz_dir='viz'
     )
