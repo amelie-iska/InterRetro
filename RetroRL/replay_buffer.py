@@ -1,4 +1,5 @@
 
+from tqdm import tqdm
 import numpy as np
 import random
 
@@ -31,8 +32,7 @@ class ReplayBuffer:
         if remember_graph:
             reactant_string = '.'.join(next_obs)
             graph_seq = self.agent.build_graph_seq(obs, reactant_string, actions)
-            if len(graph_seq) > 0:
-                self.buffer['graphs'][idx] = graph_seq
+            self.buffer['graphs'][idx] = graph_seq
         
         self.pos += 1
         self.size = int(min(self.size + 1, self.capacity))
@@ -41,6 +41,16 @@ class ReplayBuffer:
         return {'buffer/space': self.size/self.capacity,
                 'buffer/size': self.size,
                 'buffer/diversity': diversity}
+
+    def update_graphs(self):
+        for i, (obs, actions, next_obs) in tqdm(enumerate(zip(self.buffer['obs'], 
+                                               self.buffer['actions'], 
+                                               self.buffer['next_obs'])), total=self.capacity):
+            reactant_string = '.'.join(next_obs)
+            graph_seq = self.agent.build_graph_seq(obs, reactant_string, actions)
+            self.buffer['graphs'][i] = graph_seq
+            if i == self.capacity:
+                break
 
     def sample(self, batch_size):
         indices = random.sample(range(self.size), batch_size)
@@ -52,6 +62,23 @@ class ReplayBuffer:
             'dones': [self.buffer['dones'][i] for i in indices],
             'graphs': [self.buffer['graphs'][i] for i in indices],
         }
+
+    def sample_without_replacement(self, batch_size):
+        indices = list(range(self.size))
+        random.shuffle(indices)  # Shuffle the indices
+    
+        for start_idx in range(0, self.size, batch_size):
+            batch_indices = indices[start_idx:start_idx + batch_size]
+            
+            yield {
+                'obs': [self.buffer['obs'][i] for i in batch_indices],
+                'actions': [self.buffer['actions'][i] for i in batch_indices],
+                'next_obs': [self.buffer['next_obs'][i] for i in batch_indices],
+                'rewards': [self.buffer['rewards'][i] for i in batch_indices],
+                'dones': [self.buffer['dones'][i] for i in batch_indices],
+                'graphs': [self.buffer['graphs'][i] for i in batch_indices],
+            }
+
 
     def __len__(self):
         return self.size

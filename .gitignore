@@ -7,6 +7,7 @@ wandb/
 .idea/
 retro_data/
 .DS_Store
+buffers/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
