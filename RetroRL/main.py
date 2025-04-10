@@ -34,7 +34,7 @@ if __name__ == '__main__':
     if args.enable_wandb:
         wandb.init(project=args.project, config=args, group=args.group, name='{}_seed{}'.format(args.group, args.seed))
         
-    routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun_rate)
+    routes = minicut(pickle.load(open(args.training_routes, 'rb')), args.minirun_percentage)
     logging.info(f"{len(routes)} training routes have been loaded.")
     target_mols = []
     for route in tqdm(routes):

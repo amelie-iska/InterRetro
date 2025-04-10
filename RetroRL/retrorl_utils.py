@@ -11,8 +11,8 @@ from datetime import datetime
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-def minicut(input, minirun_rate):
-    output = input[:int(len(input)/minirun_rate)]
+def minicut(input, percentage):
+    output = input[:int(len(input) * percentage / 100)]
     return output
     
 def prepare_starting_molecules(filename):

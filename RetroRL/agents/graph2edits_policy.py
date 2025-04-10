@@ -40,7 +40,7 @@ class Graph2EditsPolicy(BaseAgent):
         self.atom_vocab = Vocab(joblib.load(self.args.atom_vocab_file))
         
         # Load Graph2Edits
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
         config = checkpoint['saveables']
         self.graph2edits = Graph2Edits(**config, device=args.device)
         self.graph2edits.load_state_dict(checkpoint['state'])
@@ -53,7 +53,7 @@ class Graph2EditsPolicy(BaseAgent):
                                      beam_size=10, use_rxn_class=False)
         
         # Prepare value function
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
         config = checkpoint['saveables']
         self.value_fn = DMPNNValue(**config, device=args.device)
         self.value_fn.load_state_dict(checkpoint['state'])
@@ -374,13 +374,14 @@ class Graph2EditsPolicy(BaseAgent):
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
         top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=max_steps, rxn_class=False)
-        
         all_reactants = []
+        all_reactant_probs = []
         all_edits = []
         for res in top_k_results:
             if not res['final_smi'].startswith('final_smi_unmapped'):
                 reactant_list = res['final_smi'].split('.')
                 all_reactants.append(reactant_list)
+                all_reactant_probs.append(res['prob'])
                 
                 edit_seq_with_params = []
                 for action, atom_or_atoms in zip(res['edits'], res['edits_atom']):
@@ -391,9 +392,8 @@ class Graph2EditsPolicy(BaseAgent):
         if len(all_reactants) == 0:
             raise ValueError(f"Final SMILES for {p_smi} are unmapped.")
         
-        # If sampling == True, pick one random route
         if sampling:
-            idx = random.choice(range(len(all_reactants)))
+            idx = random.choices(range(len(all_reactants)), weights=all_reactant_probs, k=1)[0]
             return all_reactants[idx], all_edits[idx]
         else:
             return all_reactants[0], all_edits[0]

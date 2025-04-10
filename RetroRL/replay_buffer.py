@@ -16,7 +16,10 @@ class ReplayBuffer:
         }
         self.size = 0
         self.pos = 0
-
+        
+    def is_full(self):
+        return self.size == self.capacity
+    
     def add(self, obs, actions, next_obs, rewards, dones, remember_graph):
         idx = int(self.pos % self.capacity)
         self.buffer['obs'][idx] = obs
