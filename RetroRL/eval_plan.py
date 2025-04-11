@@ -17,7 +17,7 @@ from rdkit import Chem
 
 import os
 from tqdm import tqdm
-dirpath = os.path.dirname(os.path.abspath(__file__))
+dirpath = parent_dir
 
 
 class RSPlanner:
@@ -27,7 +27,7 @@ class RSPlanner:
                  expansion_topk=50,
                  iterations=500,
                  use_value_fn=False,
-                 starting_molecules=dirpath+'/dataset/origin_dict.csv',
+                 starting_molecules=dirpath+'/dataset/origin_dict_canonical.csv',
                  save_folder=dirpath+'/saved_models',
                  value_model='best_epoch_final_4.pt',
                  fp_dim=2048,
@@ -89,46 +89,16 @@ class RSPlanner:
             # logging.info('Synthesis path for %s not found. Please try increasing the number of iterations.' % target_mol)
             return None
 
-from syntheseus import Molecule
-from syntheseus.reaction_prediction.inference import (
-     LocalRetroModel, Graph2EditsModel, ChemformerModel, MEGANModel)
-class OneStep:
-    
-    def __init__(self, model_name):
-        if model_name == 'LocalRetroModel':
-            self.model = LocalRetroModel()
-        elif model_name == 'Graph2EditsModel':
-            self.model = Graph2EditsModel()
-        elif model_name == 'ChemformerModel':
-            self.model = ChemformerModel()
-        elif model_name == 'MEGANModel':
-            self.model = MEGANModel()
-        else:
-            raise Exception(f'{model_name} does not exist.')
-    
-    def mols_to_str(self, mols) -> str:
-        return ".".join([mol.smiles for mol in mols])
-    
-    def run(self, p_smi, topk=10):
-        test_mol = Molecule(p_smi)
-        [results] = self.model([test_mol], num_results=max(10, topk))
-        
-        all_reactants = []
-        for idx, prediction in enumerate(results):
-            all_reactants.append(self.mols_to_str(prediction.reactants))
-        return {'reactants': all_reactants[:topk],
-                'scores': [1 for i in range(len(all_reactants))][:topk],
-                'template': [1 for i in range(len(all_reactants))][:topk],
-                'scores_reference': [1 for i in range(len(all_reactants))][:topk]}
-
 
 if __name__ == '__main__':
     from config_parser import get_args
     from agents import return_agent
     args = get_args()
-    # one_step = return_agent(args)
-    one_step = OneStep('MEGANModel')
+    one_step = return_agent(args)
     eval_routes = '../dataset/routes_possible_test_hard.pkl'
+
+    checkpoint = torch.load('models_epoch3_update1563.pth', map_location='cpu')
+    one_step.load_state_dict(checkpoint)
 
     eval_routes = pickle.load(open(args.eval_routes, 'rb'))
     print(f"{len(eval_routes)} evaluation routes have been loaded.")
@@ -143,7 +113,7 @@ if __name__ == '__main__':
         one_step=one_step,
         gpu=0,
         use_value_fn=False,
-        iterations=100,
+        iterations=50,
         expansion_topk=50,
         viz=False,
         viz_dir='viz'

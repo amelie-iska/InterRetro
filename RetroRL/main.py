@@ -59,6 +59,7 @@ if __name__ == '__main__':
     logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
     
     agent = return_agent(args)
+    bc_agent = return_agent(args)
     buffer = ReplayBuffer(capacity=args.buffer_capacity, agent=agent)
     traj_creator = TrajectoryCreator(agent)
 
@@ -80,6 +81,7 @@ if __name__ == '__main__':
             
             # Explore
             start_time = time.time()
+            runner.synchronise_models(bc_agent.get_state_dict())
             tree_list, succ_subtrees_list, info_list = runner.run(mols, test=False)
             end_time = time.time()
             if len(info_list) == 0: continue
@@ -97,7 +99,8 @@ if __name__ == '__main__':
                            logs.update(buffer_logs)
                 if not info['success']: # Save to archive
                     archive.add(tree.id)
-            
+
+
             # Training
             if len(buffer) > 5 * args.training_batch_size:
                 for _ in range(args.update_frequency):
@@ -106,17 +109,17 @@ if __name__ == '__main__':
                     value_logs = agent.fit_value(rxn_batch)
                     logs.update(policy_logs)
                     logs.update(value_logs)
-                runner.synchronise_models(agent.get_state_dict())
             
             # Evaluation
             if it % args.eval_interval == 0 and args.enable_eval:
                 start_time = time.time()
+                runner.synchronise_models(agent.get_state_dict())
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
                 logs.update({'evaluation/elapsed_time': end_time - start_time,
                              'evaluation/success_rate': sum([info['success'] for info in info_list]) / len(eval_mols),
                              'evaluation/depth': sum([info['depth'] for info in info_list]) / len(info_list)})
-            
+
             # Save Models
             if it % args.save_interval == 0:
                 torch.save(agent.get_state_dict(), f'{exp_folder}/models_epoch{epoch}_it{it}.pth')

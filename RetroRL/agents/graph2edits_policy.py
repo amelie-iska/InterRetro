@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -10,6 +9,7 @@ from rdkit import Chem
 
 import os
 import sys
+
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 
@@ -30,37 +30,38 @@ import os
 
 from agents.base_agent import BaseAgent
 
+
 class Graph2EditsPolicy(BaseAgent):
     def __init__(self, args):
         self.args = args
         self.updates = 0
-        
-        #self.rxn_mapper = RXNMapper()
+
+        # self.rxn_mapper = RXNMapper()
         self.bond_vocab = Vocab(joblib.load(self.args.bond_vocab_file))
         self.atom_vocab = Vocab(joblib.load(self.args.atom_vocab_file))
-        
+
         # Load Graph2Edits
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
         config = checkpoint['saveables']
         self.graph2edits = Graph2Edits(**config, device=args.device)
         self.graph2edits.load_state_dict(checkpoint['state'])
         self.graph2edits.to(args.device)
         self.graph2edits.eval()
         self.graph2edits_optim = torch.optim.Adam(self.graph2edits.parameters(), lr=args.lr)
-        
+
         # Load bream search
         self.beam_model = BeamSearch(model=self.graph2edits, step_beam_size=5,
                                      beam_size=10, use_rxn_class=False)
-        
+
         # Prepare value function
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
         config = checkpoint['saveables']
         self.value_fn = DMPNNValue(**config, device=args.device)
         self.value_fn.load_state_dict(checkpoint['state'])
         self.value_fn.to(args.device)
         self.value_fn.eval()
         self.value_optim = torch.optim.Adam(self.value_fn.parameters(), lr=args.lr)
-        
+
         self.nn_models = {'policy': self.graph2edits,
                           'value_fn': self.value_fn}
 
@@ -207,7 +208,6 @@ class Graph2EditsPolicy(BaseAgent):
             'graph2edits/mean_weight': weights.mean().item()
         }
 
-
     def build_graph_seq(self, product_smi, reactants_smi, edit_seq):
         """
         product_smi:    e.g. 'CCC(=O)N'
@@ -224,7 +224,7 @@ class Graph2EditsPolicy(BaseAgent):
             Chem.Kekulize(p_mol)
         except:
             return []  # can't parse?
-    
+
         graph_seq = []
         int_mol = p_mol
         for (edit_action, edit_atoms) in edit_seq:
@@ -234,11 +234,11 @@ class Graph2EditsPolicy(BaseAgent):
                 edit_to_apply=edit_action,
                 edit_atom=edit_atoms,
                 reac_mol=Chem.Mol(r_mol),
-                rxn_class=None, 
+                rxn_class=None,
                 use_rxn_class=False
             )
             graph_seq.append(rxn_graph)
-    
+
             # If not 'Terminate', apply the edit to int_mol
             if edit_action == 'Terminate':
                 # after Termination, we just break or let it continue with a None check
@@ -250,68 +250,66 @@ class Graph2EditsPolicy(BaseAgent):
                 if int_mol is None:
                     print("Warning: applying edit resulted in None molecule. Stopping.")
                     break
-    
+
         return graph_seq
-    
-    
+
     def process_batch(self, batch_graphs):
         lengths = torch.tensor([len(graph_seq)
-                               for graph_seq in batch_graphs], dtype=torch.long)
+                                for graph_seq in batch_graphs], dtype=torch.long)
         max_length = max([len(graph_seq) for graph_seq in batch_graphs])
-    
-    
+
         graph_seq_tensors = []
         edit_seq_labels = []
         seq_mask = []
-    
+
         for idx in range(max_length):
-            graphs_idx = [copy.deepcopy(batch_graphs[i][min(idx, length-1)]).get_components(attrs=['prod_graph', 'edit_to_apply', 'edit_atom'])
+            graphs_idx = [copy.deepcopy(batch_graphs[i][min(idx, length - 1)]).get_components(
+                attrs=['prod_graph', 'edit_to_apply', 'edit_atom'])
                           for i, length in enumerate(lengths)]
             mask = (idx < lengths).long()
             prod_graphs, edits, edit_atoms = list(zip(*graphs_idx))
             assert all([isinstance(graph, MolGraph) for graph in prod_graphs])
-    
+
             edit_labels = prepare_edit_labels(
                 prod_graphs, edits, edit_atoms, self.bond_vocab, self.atom_vocab)
             current_graph_tensors = get_batch_graphs(
                 prod_graphs, use_rxn_class=None)
-    
+
             graph_seq_tensors.append(current_graph_tensors)
             edit_seq_labels.append(edit_labels)
             seq_mask.append(mask)
-    
+
         seq_mask = torch.stack(seq_mask).long()
         assert seq_mask.shape[0] == max_length
         assert seq_mask.shape[1] == len(batch_graphs)
-    
+
         return graph_seq_tensors, edit_seq_labels, seq_mask
-    
-    
+
     def preprocessing(self, rxns):
         rxns_data = []
         counter = []
         all_edits = {}
-    
+
         for idx, rxn_smi in enumerate(rxns):
             r, p = rxn_smi.split('>>')
             prod_mol = Chem.MolFromSmiles(p)
-    
+
             if (prod_mol is None) or (prod_mol.GetNumAtoms() <= 1) or (prod_mol.GetNumBonds() <= 1):
                 print(
                     f'Product has 0 or 1 atom or 1 bond, Skipping reaction {idx}')
                 print()
                 sys.stdout.flush()
                 continue
-    
+
             react_mol = Chem.MolFromSmiles(r)
-    
+
             if (react_mol is None) or (react_mol.GetNumAtoms() <= 1) or (prod_mol.GetNumBonds() <= 1):
                 print(
                     f'Reactant has 0 or 1 atom or 1 bond, Skipping reaction {idx}')
                 print()
                 sys.stdout.flush()
                 continue
-    
+
             try:
                 rxn_data = generate_reaction_edits(rxn_smi, kekulize=True)
             except:
@@ -319,18 +317,18 @@ class Graph2EditsPolicy(BaseAgent):
                 print()
                 sys.stdout.flush()
                 continue
-    
+
             edits_accepted = check_edits(rxn_data.edits)
             if not edits_accepted:
                 print(f'Edit: Add new bond. Skipping reaction {idx}')
                 print()
                 sys.stdout.flush()
                 continue
-    
+
             rxns_data.append(rxn_data)
-    
+
         sys.stdout.flush()
-    
+
         for idx, rxn_data in enumerate(rxns_data):
             for edit in rxn_data.edits:
                 if edit not in all_edits:
@@ -365,8 +363,7 @@ class Graph2EditsPolicy(BaseAgent):
                 filter_rxns_data.append(rxn_data)
 
         return filter_rxns_data
-    
-    
+
     def get_reactants(self, p_smi, sampling=False, max_steps=5):
         p_smi = self.canonicalize(p_smi)
         mol = Chem.MolFromSmiles(p_smi)
@@ -382,7 +379,7 @@ class Graph2EditsPolicy(BaseAgent):
                 reactant_list = res['final_smi'].split('.')
                 all_reactants.append(reactant_list)
                 all_reactant_probs.append(res['prob'])
-                
+
                 edit_seq_with_params = []
                 for action, atom_or_atoms in zip(res['edits'], res['edits_atom']):
                     edit_seq_with_params.append((action, atom_or_atoms))
@@ -391,13 +388,18 @@ class Graph2EditsPolicy(BaseAgent):
 
         if len(all_reactants) == 0:
             raise ValueError(f"Final SMILES for {p_smi} are unmapped.")
-        
+
         if sampling:
-            idx = random.choices(range(len(all_reactants)), weights=all_reactant_probs, k=1)[0]
+            temperature = 0.8  # Lower values make the distribution flatter
+            logits = np.log(np.array(all_reactant_probs) + 1e-8)
+            adjusted_probs = np.exp(logits / temperature)
+            adjusted_probs /= adjusted_probs.sum()
+
+            idx = random.choices(range(len(all_reactants)), weights=adjusted_probs, k=1)[0]
             return all_reactants[idx], all_edits[idx]
         else:
             return all_reactants[0], all_edits[0]
-    
+
     def canonicalize(self, smi):
         try:
             mol = Chem.MolFromSmiles(smi)
