@@ -68,7 +68,7 @@ if __name__ == '__main__':
     logging.info("Training starts ...")
     for epoch in range(args.epochs):
         archive = set(target_mols)
-        total_iterations = 2 * int(len(archive) / args.explore_batch_size)
+        total_iterations = int(len(archive) / args.explore_batch_size)
         for it in tqdm(range(total_iterations), mininterval=1.0, desc=f"Epoch {epoch}", dynamic_ncols=True, leave=True):
             
             logs = {}

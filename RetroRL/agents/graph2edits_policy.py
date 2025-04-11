@@ -390,7 +390,7 @@ class Graph2EditsPolicy(BaseAgent):
             raise ValueError(f"Final SMILES for {p_smi} are unmapped.")
 
         if sampling:
-            temperature = 0.8  # Lower values make the distribution flatter
+            temperature = 0.1  # Lower values make the distribution flatter
             logits = np.log(np.array(all_reactant_probs) + 1e-8)
             adjusted_probs = np.exp(logits / temperature)
             adjusted_probs /= adjusted_probs.sum()
