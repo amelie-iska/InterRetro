@@ -59,7 +59,6 @@ if __name__ == '__main__':
     logging.info(f"{len(eval_mols)} evaluation molecules are loaded after removing duplicates. ")
     
     agent = return_agent(args)
-    bc_agent = return_agent(args)
     buffer = ReplayBuffer(capacity=args.buffer_capacity, agent=agent)
     traj_creator = TrajectoryCreator(agent)
 
@@ -81,7 +80,6 @@ if __name__ == '__main__':
             
             # Explore
             start_time = time.time()
-            runner.synchronise_models(bc_agent.get_state_dict())
             tree_list, succ_subtrees_list, info_list = runner.run(mols, test=False)
             end_time = time.time()
             if len(info_list) == 0: continue
@@ -109,11 +107,11 @@ if __name__ == '__main__':
                     value_logs = agent.fit_value(rxn_batch)
                     logs.update(policy_logs)
                     logs.update(value_logs)
+            runner.synchronise_models(agent.get_state_dict())
             
             # Evaluation
             if it % args.eval_interval == 0 and args.enable_eval:
                 start_time = time.time()
-                runner.synchronise_models(agent.get_state_dict())
                 tree_list, succ_subtrees_list, info_list = runner.run(eval_mols, test=True)
                 end_time = time.time()
                 logs.update({'evaluation/elapsed_time': end_time - start_time,

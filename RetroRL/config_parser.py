@@ -7,7 +7,7 @@ def get_args():
     
     parser.add_argument('--agent', type=str, default='graph2edits')
     parser.add_argument('--device',  type=str, choices=['cuda', 'cpu'], default='cuda')
-    parser.add_argument('--n_processes', type=int, default=4)
+    parser.add_argument('--n_processes', type=int, default=8)
     parser.add_argument('--n_gpus', type=int, default=1)
     parser.add_argument('--seed', type=int, default=-1)
     parser.add_argument('--project', type=str, default='RSS')
@@ -21,6 +21,7 @@ def get_args():
     parser.add_argument('--save_interval', type=int, default=1000)
     
     # One-step model
+    parser.add_argument('--temperature', type=float, default=0.9)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--buffer_capacity', type=int, default=20000)
     parser.add_argument('--training_batch_size', type=int, default=64)
