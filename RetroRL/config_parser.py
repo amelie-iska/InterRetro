@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--group', type=str, default='RetroRL')
     parser.add_argument('--enable_wandb',  type=int, choices=[0, 1], default=1)
     parser.add_argument('--enable_eval', type=int, choices=[0, 1], default=1)
-    parser.add_argument('--minirun_percentage',  type=int, default=2)
+    parser.add_argument('--minirun_percentage',  type=int, default=10)
     
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--eval_interval', type=int, default=100)
