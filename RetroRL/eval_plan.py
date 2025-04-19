@@ -19,71 +19,6 @@ import os
 from tqdm import tqdm
 dirpath = parent_dir
 
-# For feasibility
-import numpy as np
-import jax.numpy as jnp
-import jax.random as random
-from numpyro.infer import Predictive
-from bayesian_reactivity_prediction.jax_model import BNN_NUTS
-from bayesian_reactivity_prediction.utils import cal_DRFP, disentangle_uncertainty
-
-
-def parse_route_to_reactions(route_str):
-    """
-    Parse a retrosynthesis route string into a list of 'reactants>>product' format reactions.
-
-    Args:
-        route_str (str): A retrosynthesis route string of the form:
-                         product>cost>reactants|intermediate>cost>reactants|...
-
-    Returns:
-        List[str]: A list of reaction strings like 'reactant1.reactant2>>product'
-    """
-    reactions = []
-    steps = route_str.split('|')
-    product = steps[0].split('>')[0]  # Final target molecule
-
-    for step in steps:
-        parts = step.split('>')
-        if len(parts) < 3:
-            continue  # Skip malformed steps
-
-        step_product = parts[0].strip()
-        reactants = parts[2].strip()
-        reaction_str = f"{reactants}>>{step_product}"
-        reactions.append(reaction_str)
-
-    return reactions
-
-
-def get_feasibility(rxn, verbose=False):
-
-    def init_model(model_path="../bayesian_reactivity_prediction/models/BNN_NUTS.npz"):
-        model = BNN_NUTS(2048, 16, 1)
-        with np.load(model_path, mmap_mode='r') as data:
-            model_samples = {key: jnp.array(data[key]) for key in data.keys()}
-        predictive_probs = Predictive(
-            model.jax_model, posterior_samples=model_samples, return_sites=["prob"])
-        return predictive_probs
-
-    def inf(rxn_lst, predictive_probs, seed=666, verbose=False):
-        fps = jnp.array(cal_DRFP(rxn_lst))
-        _, rng_key_predict = random.split(random.PRNGKey(seed))
-        probs_posterior = np.array(predictive_probs(
-            rng_key_predict, fps, None, 16)["prob"])
-        predictions = probs_posterior.T
-        mean, predictive_uncertainty, aleatoric_uncertainty, epistemic_uncertainty = disentangle_uncertainty(
-            predictions)
-        if verbose:
-            print(
-                f"mean: {mean}, \npredictive_uncertainty: {predictive_uncertainty}, \naleatoric_uncertainty: {aleatoric_uncertainty}, \nepistemic_uncertainty: {epistemic_uncertainty}")
-        flag = (mean > 0.5).astype(int)
-        return flag
-
-    predictive_probs = init_model()
-    flag = inf(rxn, predictive_probs, seed=666, verbose=verbose)
-    return flag
-
 class RSPlanner:
     def __init__(self,
                  one_step,
@@ -99,7 +34,7 @@ class RSPlanner:
                  viz_dir='viz'):
 
         setup_logger()
-        device = 'mps'
+        device = 'cpu'
         starting_mols = prepare_starting_molecules(starting_molecules)
 
 
@@ -161,7 +96,7 @@ if __name__ == '__main__':
     one_step = return_agent(args)
     eval_routes = '../dataset/routes_possible_test_hard.pkl'
 
-    checkpoint = torch.load('models_epoch3_update1563.pth', map_location='cpu')
+    checkpoint = torch.load('models_epoch4_it0.pth', map_location='cpu')
     one_step.load_state_dict(checkpoint)
 
     eval_routes = pickle.load(open(eval_routes, 'rb'))
@@ -182,29 +117,17 @@ if __name__ == '__main__':
         viz=False,
         viz_dir='viz'
     )
-    logs = {'successes': [], 'depth': [], 'feasibility': []}
+    logs = {'successes': [], 'depth': []}
     for id, mol in enumerate(tqdm(eval_mols)):
         result = planner.plan(mol, id)
 
-        if result is not None:
-            reactions = parse_route_to_reactions(result['routes'])
-            feasibility = []
-            for rxn in reactions:
-                f = get_feasibility(rxn, verbose=True)
-                feasibility.append(f.item())
-
-            logs['feasibility'].append(min(feasibility))
+        if result is not None and result['route_len'] < 20:
             logs['successes'].append(int(result['succ']))
             logs['depth'].append(int(result['route_len']))
         else:
             logs['successes'].append(0)
 
-        if id >= 99:
-            break
-
     print(logs)
-    print('Feasible routes among successful routes', sum(logs['feasibility']) / len(logs['feasibility']))
-    print('Average Feasible rate', sum(logs['feasibility']) / len(logs['successes']))
     print('Success rate', sum(logs['successes']) / len(logs['successes']))
     print('Average Depth of Success Path', sum(logs['depth']) / len(logs['depth']))
 
