@@ -65,13 +65,13 @@ class Graph2EditsPolicy(BaseAgent):
         self.nn_models = {'policy': self.graph2edits,
                           'value_fn': self.value_fn}
 
-    def run(self, p_smi, topk=10):
+    def run(self, p_smi, topk=5):
         p_smi = self.canonicalize(p_smi)
         mol = Chem.MolFromSmiles(p_smi)
         for i, atom in enumerate(mol.GetAtoms(), start=1):
             atom.SetAtomMapNum(i)
         labeled_smi = Chem.MolToSmiles(mol)
-        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=max(10, topk), rxn_class=False)
+        top_k_results = self.beam_model.run_search(prod_smi=labeled_smi, max_steps=max(5, topk), rxn_class=False)
 
         all_reactants = []
         all_edits = []

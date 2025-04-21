@@ -94,10 +94,10 @@ if __name__ == '__main__':
     from agents import return_agent
     args = get_args()
     one_step = return_agent(args)
-    eval_routes = '../dataset/routes_possible_test_hard.pkl'
+    eval_routes = '../dataset/chembl_1000.pkl'
 
-    checkpoint = torch.load('models_epoch4_it0.pth', map_location='cpu')
-    one_step.load_state_dict(checkpoint)
+    #checkpoint = torch.load('minirun1.pth', map_location='cpu')
+    #one_step.load_state_dict(checkpoint)
 
     eval_routes = pickle.load(open(eval_routes, 'rb'))
     print(f"{len(eval_routes)} evaluation routes have been loaded.")
@@ -112,8 +112,8 @@ if __name__ == '__main__':
         one_step=one_step,
         gpu=0,
         use_value_fn=False,
-        iterations=50,
-        expansion_topk=1,
+        iterations=500,
+        expansion_topk=10,
         viz=False,
         viz_dir='viz'
     )
@@ -121,11 +121,14 @@ if __name__ == '__main__':
     for id, mol in enumerate(tqdm(eval_mols)):
         result = planner.plan(mol, id)
 
-        if result is not None and result['route_len'] < 20:
+        if result is not None and result['route_len'] < 10:
             logs['successes'].append(int(result['succ']))
             logs['depth'].append(int(result['route_len']))
         else:
             logs['successes'].append(0)
+        if id >= 69:
+            break
+
 
     print(logs)
     print('Success rate', sum(logs['successes']) / len(logs['successes']))
