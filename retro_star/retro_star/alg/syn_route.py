@@ -68,7 +68,7 @@ class SynRoute:
             idx, parent_idx = node_queue.get()
 
             if parent_idx >= 0:
-                G.edge(names[parent_idx], names[idx], label='cost')
+                G.edge(names[parent_idx], names[idx], label='')
 
             if self.children[idx] is not None:
                 for c in self.children[idx]:
