@@ -5,7 +5,7 @@ This is the official code repository for the paper *Retrosynthesis Planning via 
 
 ## Setup
 
-The complete codebase is organised into four subfolders:
+The complete codebase is organised into three subfolders:
 
 ```
 InterRetro
