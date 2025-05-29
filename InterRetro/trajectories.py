@@ -2,7 +2,7 @@
 from rdkit import Chem
 import numpy as np
 
-from retrorl_utils import smiles2array
+from interretro_utils import smiles2array
 from anytree import AnyNode, RenderTree, PreOrderIter
 
 class TrajectoryCreator:

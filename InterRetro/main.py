@@ -12,7 +12,7 @@ RDLogger.DisableLog('rdApp.*')
 from replay_buffer import ReplayBuffer
 from trajectories import TrajectoryCreator
 from runners import ParallelRunner
-from retrorl_utils import set_seeds, create_exp, minicut
+from interretro_utils import set_seeds, create_exp, minicut
 from config_parser import get_args
 from agents import return_agent
 

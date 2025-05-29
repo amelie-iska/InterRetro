@@ -41,7 +41,7 @@ class Graph2EditsPolicy(BaseAgent):
         self.atom_vocab = Vocab(joblib.load(self.args.atom_vocab_file))
 
         # Load Graph2Edits
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
         config = checkpoint['saveables']
         self.graph2edits = Graph2Edits(**config, device=args.device)
         self.graph2edits.load_state_dict(checkpoint['state'])
@@ -54,7 +54,7 @@ class Graph2EditsPolicy(BaseAgent):
                                      beam_size=10, use_rxn_class=False)
 
         # Prepare value function
-        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'))
+        checkpoint = torch.load(args.graph2edits_model, map_location=torch.device('cpu'), weights_only=False)
         config = checkpoint['saveables']
         self.value_fn = DMPNNValue(**config, device=args.device)
         self.value_fn.load_state_dict(checkpoint['state'])

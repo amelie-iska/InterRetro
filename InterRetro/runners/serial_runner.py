@@ -1,5 +1,5 @@
 
-from retrorl_utils import prepare_starting_molecules
+from interretro_utils import prepare_starting_molecules
 
 import logging
 import torch.multiprocessing as mp

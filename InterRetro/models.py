@@ -27,7 +27,7 @@ import torch.nn.functional as F
 from collections import defaultdict, OrderedDict
 from rdchiral.main import rdchiralRunText
 
-from retrorl_utils import smiles2array
+from interretro_utils import smiles2array
 
 def merge(reactant_d):
     ret = []
