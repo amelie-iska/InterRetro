@@ -19,10 +19,20 @@ For the `dataset` folder, please download it from [this link](https://drive.goog
 
 ## Usage
 
-To train the InterRetro model, run the following command:
+The required packages are recorded in `requirements.txt`. Please install them using the following command:
+```
+cd InterRetro
+pip install -r requirements.txt
+```
 
+To train the InterRetro model with wandb logs, run the following command:
 ```
 python InterRetro/main.py
+```
+
+To train the model without wandb logs, run the following command:
+```
+python InterRetro/main.py --enable_wandb 0
 ```
 
 You can find available configuration options in the `config_parser.py` file.
