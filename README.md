@@ -37,7 +37,17 @@ python InterRetro/main.py --enable_wandb 0
 
 You can find available configuration options in the `config_parser.py` file.
 
-## Acknowledgements
+## Reference
 
-We acknowledge that portions of this code have been adapted from [Retro\*](https://github.com/binghong-ml/retro_star) and [Graph2Edits](https://github.com/Jamson-Zhong/Graph2Edits), both of which are distributed under the MIT License. This code is also released under the MIT License.
+If you find our research helpful, please cite our paper at NeurIPS 2025:
+```
+@inproceedings{
+  wang2025interretro,
+  title={Retrosynthesis Planning via Worst-path Policy Optimisation in Tree-structured {MDP}s},
+  author={Mianchu Wang and Giovanni Montana},
+  booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems},
+  year={2025},
+  url={https://openreview.net/forum?id=m7uj1vIZ62}
+}
+```
 
