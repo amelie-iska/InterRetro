@@ -1,7 +1,7 @@
 
 # Interactive Retrosynthesis Planning (InterRetro)
 
-This is the official code repository for the paper *Retrosynthesis Planning via Worst-path Policy Optimisation in Tree-structured MDPs*.
+This is the official code repository for NeurIPS 2025 paper *Retrosynthesis Planning via Worst-path Policy Optimisation in Tree-structured MDPs*.
 
 ## Setup
 
