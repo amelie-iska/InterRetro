@@ -22,7 +22,7 @@ def get_args():
     
     # One-step model
     parser.add_argument('--temperature', type=float, default=0.9)
-    parser.add_argument('--adv_coef', type=float, default=0.0)
+    parser.add_argument('--adv_coef', type=float, default=10.0)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--buffer_capacity', type=int, default=20000)
     parser.add_argument('--training_batch_size', type=int, default=64)
